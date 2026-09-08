@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Lecteur SCORM</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <strong>Lecteur SCORM</strong>
+        <span id="statusBadge" class="badge">Aucun package</span>
+      </div>
+      <div class="top-actions">
+        <label class="button primary" for="zipInput">Ouvrir un SCORM</label>
+        <input id="zipInput" type="file" accept=".zip,application/zip" hidden>
+        <button id="resetSessionBtn" class="button" type="button" disabled>Réinitialiser la session</button>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <aside class="sidebar panel">
+        <section class="package-summary">
+          <div class="eyebrow">Package</div>
+          <h1 id="packageTitle">Aucun package chargé</h1>
+          <dl class="metadata">
+            <div><dt>Standard</dt><dd id="packageStandard">Non disponible</dd></div>
+            <div><dt>Identifiant</dt><dd id="packageId">Non disponible</dd></div>
+            <div><dt>Fichiers</dt><dd id="fileCount">Non disponible</dd></div>
+          </dl>
+        </section>
+
+        <section class="learner-box">
+          <div class="eyebrow">Apprenant simulé</div>
+          <label>ID <input id="learnerId" value="learner-001" autocomplete="off"></label>
+          <label>Nom <input id="learnerName" value="Apprenant Test" autocomplete="off"></label>
+          <button id="applyLearnerBtn" class="button compact" type="button">Appliquer</button>
+        </section>
+
+        <section class="outline-section">
+          <div class="section-title-row">
+            <div class="eyebrow">Plan du cours</div>
+            <span id="itemCount" class="muted"></span>
+          </div>
+          <nav id="courseOutline" class="outline" aria-label="Plan du cours">
+            <p class="empty-hint">Importez un package SCORM pour afficher son manifeste.</p>
+          </nav>
+        </section>
+      </aside>
+
+      <section class="player-column">
+        <div class="player-toolbar panel">
+          <div class="player-nav">
+            <button id="prevBtn" class="icon-button" type="button" title="Élément précédent" disabled>←</button>
+            <button id="nextBtn" class="icon-button" type="button" title="Élément suivant" disabled>→</button>
+            <button id="reloadBtn" class="button compact" type="button" disabled>Recharger le SCO</button>
+          </div>
+          <div class="current-item">
+            <span class="eyebrow">Élément actif</span>
+            <strong id="currentItemTitle">Aucun</strong>
+          </div>
+          <button id="openWindowBtn" class="button compact" type="button" disabled>Nouvelle fenêtre</button>
+        </div>
+
+        <div id="dropZone" class="player panel drop-zone">
+          <div id="emptyState" class="empty-state">
+            <div class="drop-icon">ZIP</div>
+            <h2>Déposez ici un package SCORM</h2>
+            <p>SCORM 1.2 et SCORM 2004 sont détectés automatiquement.</p>
+            <label class="button primary" for="zipInput">Choisir un fichier .zip</label>
+            <p class="technical-note">Le package est traité uniquement dans votre navigateur. Aucun fichier SCORM n’est envoyé vers un serveur.</p>
+          </div>
+          <iframe id="scoFrame" title="Contenu SCORM" hidden></iframe>
+        </div>
+      </section>
+
+      <aside class="inspector panel">
+        <div class="inspector-header">
+          <div>
+            <div class="eyebrow">Inspection LMS</div>
+            <strong id="runtimeLabel">Runtime inactif</strong>
+          </div>
+          <button id="clearLogBtn" class="button compact" type="button">Vider le journal</button>
+        </div>
+
+        <div class="tabs" role="tablist">
+          <button class="tab active" data-tab="data" role="tab">Données</button>
+          <button class="tab" data-tab="log" role="tab">Journal</button>
+          <button class="tab" data-tab="manifest" role="tab">Manifeste</button>
+        </div>
+
+        <section id="tab-data" class="tab-panel active">
+          <div class="data-toolbar">
+            <input id="dataFilter" type="search" placeholder="Filtrer cmi…" aria-label="Filtrer les données">
+          </div>
+          <div class="data-table-wrap">
+            <table class="data-table">
+              <thead><tr><th>Élément</th><th>Valeur</th></tr></thead>
+              <tbody id="dataBody">
+                <tr><td colspan="2" class="empty-cell">Aucune donnée de session.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="tab-log" class="tab-panel">
+          <div id="logList" class="log-list">
+            <p class="empty-hint">Les appels SCORM apparaîtront ici.</p>
+          </div>
+        </section>
+
+        <section id="tab-manifest" class="tab-panel">
+          <pre id="manifestView" class="manifest-view">Aucun manifeste chargé.</pre>
+        </section>
+      </aside>
+    </main>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="zip-reader.js"></script>
+  <script src="manifest.js"></script>
+  <script src="scorm-runtime.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
