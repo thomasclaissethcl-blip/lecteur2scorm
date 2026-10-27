@@ -3,28 +3,55 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light dark">
-  <title>Lecteur SCORM et simulateur Moodle 4.5</title>
+  <meta name="color-scheme" content="dark light">
+  <meta name="theme-color" content="#0a1020">
+  <title>SCORM Studio | Lecteur & simulation Moodle</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <!-- Iconographie vectorielle locale : aucune ressource externe. -->
+  <svg aria-hidden="true" class="sprite" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 2 9 5-9 5-9-5 9-5ZM3 12l9 5 9-5M3 17l9 5 9-5"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V3m-5 5 5-5 5 5M4 16v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></symbol>
+    <symbol id="i-rotate" viewBox="0 0 24 24"><path d="M3 11a9 9 0 1 1 2.8 6.5M3 4v7h7"/></symbol>
+    <symbol id="i-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+    <symbol id="i-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6m0-6-9 9M20 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h5"/></symbol>
+    <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.7 2.7 0 0 1 5.3.6c0 1.8-2.8 2.2-2.8 4.2M12 17.4h.01"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 15.5A8.5 8.5 0 0 1 8.5 4 8.5 8.5 0 1 0 20 15.5Z"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4m0-14.2-1.4 1.4M6.3 17.7l-1.4 1.4"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5M5.8 9A7.5 7.5 0 0 1 19 7l1 5M4 12l1 5a7.5 7.5 0 0 0 13.2-2"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m-4-4 4 4 4-4M4 17v4h16v-4"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v7m4-7v7M6 7l1 14h10l1-14M9 7V4h6v3"/></symbol>
+    <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 3h14a2 2 0 0 1 2 2v16H6a2 2 0 0 1 0-4h14M4 3v16a2 2 0 0 0 2 2"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V4m0 16h16M8 14l4-4 3 2 5-6"/></symbol>
+    <symbol id="i-activity" viewBox="0 0 24 24"><path d="M2 12h5l3-8 4 16 3-8h5"/></symbol>
+    <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 4 18 4 18 0V5M3 12c0 4 18 4 18 0"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 4v16M4 12h16"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h16M4 17h16M9 4v6m6 4v6"/><circle cx="9" cy="7" r="2"/><circle cx="15" cy="17" r="2"/></symbol>
+    <symbol id="i-zip" viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Zm9 0v6h5M11 4v2m0 2v2m0 2v2m0 2v3"/></symbol>
+  </svg>
   <div class="app-shell">
     <header class="topbar">
       <div class="brand">
-        <strong>Lecteur SCORM <span class="brand-extension">et simulateur Moodle 4.5</span></strong>
+        <div class="brand-mark"><svg class="ui-icon" aria-hidden="true"><use href="#i-layers"></use></svg></div>
+        <div class="brand-text"><strong>SCORM <span>Studio</span></strong><small>Lecteur & simulation Moodle</small></div>
         <span id="statusBadge" class="badge">Aucun package</span>
       </div>
       <div class="top-actions">
-        <label class="button primary" for="zipInput">Ouvrir un SCORM</label>
+        <button id="themeToggle" class="icon-button theme-toggle" type="button" aria-label="Activer le mode clair" title="Changer de thème"><svg class="ui-icon" aria-hidden="true"><use href="#i-sun"></use></svg></button>
+        <label class="button primary" for="zipInput"><svg class="ui-icon" aria-hidden="true"><use href="#i-upload"></use></svg> Importer un SCORM</label>
         <input id="zipInput" type="file" accept=".zip,application/zip" hidden>
-        <button id="resetSessionBtn" class="button" type="button" disabled>Réinitialiser la session</button>
+        <button id="resetSessionBtn" class="button subtle" type="button" disabled><svg class="ui-icon" aria-hidden="true"><use href="#i-rotate"></use></svg> Réinitialiser</button>
       </div>
     </header>
 
     <main class="workspace">
       <aside class="sidebar panel">
         <section class="package-summary">
-          <div class="eyebrow">Package</div>
+          <div class="eyebrow"><svg class="ui-icon" aria-hidden="true"><use href="#i-zip"></use></svg> Package</div>
           <h1 id="packageTitle">Aucun package chargé</h1>
           <dl class="metadata">
             <div><dt>Standard</dt><dd id="packageStandard">Non disponible</dd></div>
@@ -34,7 +61,7 @@
         </section>
 
         <section class="learner-box">
-          <div class="eyebrow">Apprenant simulé</div>
+          <div class="eyebrow"><svg class="ui-icon" aria-hidden="true"><use href="#i-user"></use></svg> Apprenant simulé <button class="help-trigger" data-help="learner" type="button" aria-label="Aide : apprenant simulé"><svg class="ui-icon" aria-hidden="true"><use href="#i-help"></use></svg></button></div>
           <label>ID <input id="learnerId" value="learner-001" autocomplete="off"></label>
           <label>Nom <input id="learnerName" value="Apprenant Test" autocomplete="off"></label>
           <button id="applyLearnerBtn" class="button compact" type="button">Appliquer</button>
@@ -42,7 +69,7 @@
 
         <section class="outline-section">
           <div class="section-title-row">
-            <div class="eyebrow">Plan du cours</div>
+            <div class="eyebrow"><svg class="ui-icon" aria-hidden="true"><use href="#i-book"></use></svg> Plan du cours</div>
             <span id="itemCount" class="muted"></span>
           </div>
           <nav id="courseOutline" class="outline" aria-label="Plan du cours">
@@ -54,24 +81,24 @@
       <section class="player-column">
         <div class="player-toolbar panel">
           <div class="player-nav">
-            <button id="prevBtn" class="icon-button" type="button" title="Élément précédent" disabled>←</button>
-            <button id="nextBtn" class="icon-button" type="button" title="Élément suivant" disabled>→</button>
-            <button id="reloadBtn" class="button compact" type="button" disabled>Recharger le SCO</button>
+            <button id="prevBtn" class="icon-button" type="button" title="SCO précédent" aria-label="SCO précédent" disabled><svg class="ui-icon" aria-hidden="true"><use href="#i-left"></use></svg></button>
+            <button id="nextBtn" class="icon-button" type="button" title="SCO suivant" aria-label="SCO suivant" disabled><svg class="ui-icon" aria-hidden="true"><use href="#i-right"></use></svg></button>
+            <button id="reloadBtn" class="button compact" type="button" disabled><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg> Recharger</button>
           </div>
           <div class="current-item">
             <span class="eyebrow">Élément actif</span>
             <strong id="currentItemTitle">Aucun</strong>
           </div>
-          <button id="openWindowBtn" class="button compact" type="button" disabled>Nouvelle fenêtre</button>
+          <button id="openWindowBtn" class="button compact" type="button" disabled><svg class="ui-icon" aria-hidden="true"><use href="#i-external"></use></svg><span class="button-text"> Nouvelle fenêtre</span></button>
         </div>
 
         <div id="dropZone" class="player panel drop-zone">
           <div id="emptyState" class="empty-state">
-            <div class="drop-icon">ZIP</div>
-            <h2>Déposez ici un package SCORM</h2>
-            <p>SCORM 1.2 et SCORM 2004 sont détectés automatiquement.</p>
-            <label class="button primary" for="zipInput">Choisir un fichier .zip</label>
-            <p class="technical-note">Le package est traité uniquement dans votre navigateur. Aucun fichier SCORM n’est envoyé vers un serveur.</p>
+            <div class="drop-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-upload"></use></svg></div>
+            <h2>Votre espace de test SCORM</h2>
+            <p>Déposez un fichier ZIP pour explorer le module, suivre les données et simuler son résultat dans Moodle.</p>
+            <label class="button primary" for="zipInput"><svg class="ui-icon" aria-hidden="true"><use href="#i-upload"></use></svg> Choisir un ZIP</label>
+            <p class="technical-note">Traitement local dans votre navigateur. Aucun transfert du ZIP.</p>
           </div>
           <iframe id="scoFrame" title="Contenu SCORM" hidden></iframe>
         </div>
@@ -80,15 +107,15 @@
       <aside class="inspector panel">
         <div class="inspector-header">
           <div>
-            <div class="eyebrow">Inspection LMS</div>
+            <div class="eyebrow"><svg class="ui-icon" aria-hidden="true"><use href="#i-activity"></use></svg> Inspection en direct <button class="help-trigger" data-help="inspector" type="button" aria-label="Aide : inspection"><svg class="ui-icon" aria-hidden="true"><use href="#i-help"></use></svg></button></div>
             <strong id="runtimeLabel">Runtime inactif</strong>
           </div>
-          <button id="downloadLogBtn" class="button compact" type="button" disabled>Export JSON</button>
-          <button id="clearLogBtn" class="button compact" type="button">Vider</button>
+          <button id="downloadLogBtn" class="icon-button" type="button" title="Exporter le journal JSON" aria-label="Exporter le journal JSON" disabled><svg class="ui-icon" aria-hidden="true"><use href="#i-download"></use></svg></button>
+          <button id="clearLogBtn" class="icon-button" type="button" title="Vider le journal" aria-label="Vider le journal"><svg class="ui-icon" aria-hidden="true"><use href="#i-trash"></use></svg></button>
         </div>
 
         <div class="tabs" role="tablist">
-          <button class="tab active" data-tab="moodle" role="tab" aria-selected="true">Moodle 4.5</button>
+          <button class="tab active" data-tab="moodle" role="tab" aria-selected="true">Moodle</button>
           <button class="tab" data-tab="data" role="tab" aria-selected="false">Données</button>
           <button class="tab" data-tab="log" role="tab" aria-selected="false">Journal</button>
           <button class="tab" data-tab="manifest" role="tab" aria-selected="false">Manifeste</button>
@@ -97,75 +124,48 @@
         <section id="tab-moodle" class="tab-panel active" role="tabpanel">
           <div class="inspector-scroll moodle-view">
             <div class="sim-head">
-              <strong>Projection d'une activité Package SCORM</strong>
-              <span class="muted">Simulation locale, aucun accès à Moodle</span>
+              <strong>Tableau de bord Moodle <button class="help-trigger" data-help="moodle" type="button" aria-label="Aide : simulation Moodle"><svg class="ui-icon" aria-hidden="true"><use href="#i-help"></use></svg></button></strong>
+              <span class="muted">Simulation locale · référentiel Moodle 4.5</span>
             </div>
             <div class="moodle-attempt">
-              <label for="attemptSelect">Tentative</label>
+              <label for="attemptSelect">Tentative</label><button class="help-trigger" data-help="attempt" type="button" aria-label="Aide : tentative"><svg class="ui-icon" aria-hidden="true"><use href="#i-help"></use></svg></button>
               <select id="attemptSelect" aria-label="Tentative affichée"></select>
-              <button id="newAttemptBtn" class="button compact" type="button" disabled>Nouvelle tentative</button>
+              <button id="newAttemptBtn" class="button compact" type="button" disabled><svg class="ui-icon" aria-hidden="true"><use href="#i-plus"></use></svg> Nouvelle</button>
             </div>
             <div class="data-toolbar scope-toolbar">
-              <label for="moodleScope">Base du calcul</label>
+              <div class="field-row"><label for="moodleScope">Données utilisées</label><button class="help-trigger" data-help="scope" type="button" aria-label="Aide : données utilisées"><svg class="ui-icon" aria-hidden="true"><use href="#i-help"></use></svg></button></div>
               <select id="moodleScope">
                 <option value="live">Données en cours (projection)</option>
                 <option value="saved">Données validées (Commit/Finish)</option>
               </select>
             </div>
             <div class="moodle-summary" aria-live="polite">
-              <div class="sim-metric"><span>Statut du SCO actif</span><strong id="moodleStatus">Aucun</strong></div>
-              <div class="sim-metric"><span>Score brut du SCO</span><strong id="moodleScore">Non envoyé</strong></div>
-              <div class="sim-metric"><span>Note de l'activité</span><strong id="moodleGrade">Non calculable</strong></div>
-              <div class="sim-metric"><span>Achèvement simulé</span><strong id="moodleCompletion">Non configuré</strong></div>
+              <div class="sim-metric"><div class="metric-head"><svg class="ui-icon" aria-hidden="true"><use href="#i-activity"></use></svg><span>Statut SCO</span><button class="help-trigger" data-help="status" type="button" aria-label="Aide : statut"><svg class="ui-icon" aria-hidden="true"><use href="#i-help"></use></svg></button></div><strong id="moodleStatus">Aucun</strong></div>
+              <div class="sim-metric"><div class="metric-head"><svg class="ui-icon" aria-hidden="true"><use href="#i-chart"></use></svg><span>Score brut</span><button class="help-trigger" data-help="score" type="button" aria-label="Aide : score"><svg class="ui-icon" aria-hidden="true"><use href="#i-help"></use></svg></button></div><strong id="moodleScore">Non envoyé</strong></div>
+              <div class="sim-metric"><div class="metric-head"><svg class="ui-icon" aria-hidden="true"><use href="#i-chart"></use></svg><span>Note Moodle</span><button class="help-trigger" data-help="grade" type="button" aria-label="Aide : note"><svg class="ui-icon" aria-hidden="true"><use href="#i-help"></use></svg></button></div><strong id="moodleGrade">Non calculable</strong></div>
+              <div class="sim-metric"><div class="metric-head"><svg class="ui-icon" aria-hidden="true"><use href="#i-check"></use></svg><span>Achèvement</span><button class="help-trigger" data-help="completion" type="button" aria-label="Aide : achèvement"><svg class="ui-icon" aria-hidden="true"><use href="#i-help"></use></svg></button></div><strong id="moodleCompletion">Non configuré</strong></div>
             </div>
             <p id="moodleScopeNote" class="sim-note"></p>
-            <div class="sim-subtitle">Conditions d'achèvement <span id="completionCount" class="muted"></span></div>
+            <div class="sim-subtitle">Conditions d'achèvement <span id="completionCount" class="muted"></span><button class="help-trigger" data-help="completionRules" type="button" aria-label="Aide : conditions"><svg class="ui-icon" aria-hidden="true"><use href="#i-help"></use></svg></button></div>
             <div id="completionRules" class="sim-conditions"><p class="empty-hint">Aucune condition paramétrée.</p></div>
             <div class="sim-subtitle">État des SCO</div>
             <div id="scoStates" class="sco-states"><p class="empty-hint">Chargez un package.</p></div>
             <div class="sim-subtitle">Diagnostic</div>
             <div id="diagnosticList" class="diagnostics"><p class="empty-hint">En attente des données.</p></div>
             <details class="sim-config" open>
-              <summary>Paramètres Moodle simulés</summary>
-              <p class="sim-note">Reproduisez les réglages réels de votre activité Moodle. Ils sont indépendants du SCORM.</p>
-              <label>Méthode de notation
-                <select id="gradeMethod">
-                  <option value="objects">Objets d'apprentissage</option>
-                  <option value="highest" selected>Note la plus haute</option>
-                  <option value="average">Note moyenne</option>
-                  <option value="sum">Somme des notes</option>
-                </select>
-              </label>
-              <label>Note des tentatives
-                <select id="attemptMethod">
-                  <option value="highest">Meilleure tentative</option>
-                  <option value="average">Moyenne des tentatives</option>
-                  <option value="first">Première tentative</option>
-                  <option value="last">Dernière tentative achevée</option>
-                </select>
-              </label>
-              <label>Note maximale
-                <input id="maxGrade" type="number" min="0" max="10000" step="1" value="100">
-              </label>
-              <label>Statut requis
-                <select id="statusRequired">
-                  <option value="none">Aucun</option>
-                  <option value="passed">Passed</option>
-                  <option value="completed">Completed</option>
-                  <option value="either">Passed ou Completed</option>
-                </select>
-              </label>
-              <label class="check-label"><input id="allScos" type="checkbox"> Tous les SCO doivent être achevés</label>
-              <label class="check-label"><input id="minScoreEnabled" type="checkbox"> Exiger un score SCORM minimal</label>
-              <label>Score brut minimal
-                <input id="minScore" type="number" step="any" value="80" disabled>
-              </label>
-              <label class="check-label"><input id="requireGrade" type="checkbox"> Exiger une note</label>
-              <label class="check-label"><input id="passGradeEnabled" type="checkbox"> Exiger une note de passage</label>
-              <label>Note de passage (barème Moodle)
-                <input id="passGrade" type="number" step="any" value="50" disabled>
-              </label>
-              <label class="check-label"><input id="requireView" type="checkbox"> Exiger la consultation de l'activité</label>
+              <summary><svg class="ui-icon" aria-hidden="true"><use href="#i-settings"></use></svg> Paramètres Moodle</summary>
+              <p class="sim-note">Reproduisez les réglages de votre activité.</p>
+              <div class="form-field"><div class="field-row"><label for="gradeMethod">Méthode de notation</label><button class="help-trigger" data-help="gradeMethod" type="button" aria-label="Aide : Méthode de notation"><svg class="ui-icon" aria-hidden="true"><use href="#i-help"></use></svg></button></div><select id="gradeMethod"><option value="objects">Objets d'apprentissage</option><option value="highest" selected>Note la plus haute</option><option value="average">Note moyenne</option><option value="sum">Somme des notes</option></select></div>
+              <div class="form-field"><div class="field-row"><label for="attemptMethod">Note des tentatives</label><button class="help-trigger" data-help="attemptMethod" type="button" aria-label="Aide : Note des tentatives"><svg class="ui-icon" aria-hidden="true"><use href="#i-help"></use></svg></button></div><select id="attemptMethod"><option value="highest">Meilleure tentative</option><option value="average">Moyenne des tentatives</option><option value="first">Première tentative</option><option value="last">Dernière tentative achevée</option></select></div>
+              <div class="form-field"><div class="field-row"><label for="maxGrade">Note maximale</label><button class="help-trigger" data-help="maxGrade" type="button" aria-label="Aide : Note maximale"><svg class="ui-icon" aria-hidden="true"><use href="#i-help"></use></svg></button></div><input id="maxGrade" type="number" min="0" max="10000" step="1" value="100"></div>
+              <div class="form-field"><div class="field-row"><label for="statusRequired">Statut requis</label><button class="help-trigger" data-help="statusRequired" type="button" aria-label="Aide : Statut requis"><svg class="ui-icon" aria-hidden="true"><use href="#i-help"></use></svg></button></div><select id="statusRequired"><option value="none">Aucun</option><option value="passed">Passed</option><option value="completed">Completed</option><option value="either">Passed ou Completed</option></select></div>
+              <div class="check-row"><label for="allScos"><input id="allScos" type="checkbox"><span>Tous les SCO doivent être achevés</span></label><button class="help-trigger" data-help="allScos" type="button" aria-label="Aide : Tous les SCO doivent être achevés"><svg class="ui-icon" aria-hidden="true"><use href="#i-help"></use></svg></button></div>
+              <div class="check-row"><label for="minScoreEnabled"><input id="minScoreEnabled" type="checkbox"><span>Exiger un score SCORM minimal</span></label><button class="help-trigger" data-help="minScoreEnabled" type="button" aria-label="Aide : Exiger un score SCORM minimal"><svg class="ui-icon" aria-hidden="true"><use href="#i-help"></use></svg></button></div>
+              <div class="form-field"><div class="field-row"><label for="minScore">Score brut minimal</label><button class="help-trigger" data-help="minScore" type="button" aria-label="Aide : Score brut minimal"><svg class="ui-icon" aria-hidden="true"><use href="#i-help"></use></svg></button></div><input id="minScore" type="number" step="any" value="80" disabled></div>
+              <div class="check-row"><label for="requireGrade"><input id="requireGrade" type="checkbox"><span>Exiger une note</span></label><button class="help-trigger" data-help="requireGrade" type="button" aria-label="Aide : Exiger une note"><svg class="ui-icon" aria-hidden="true"><use href="#i-help"></use></svg></button></div>
+              <div class="check-row"><label for="passGradeEnabled"><input id="passGradeEnabled" type="checkbox"><span>Exiger une note de passage</span></label><button class="help-trigger" data-help="passGradeEnabled" type="button" aria-label="Aide : Exiger une note de passage"><svg class="ui-icon" aria-hidden="true"><use href="#i-help"></use></svg></button></div>
+              <div class="form-field"><div class="field-row"><label for="passGrade">Note de passage Moodle</label><button class="help-trigger" data-help="passGrade" type="button" aria-label="Aide : Note de passage Moodle"><svg class="ui-icon" aria-hidden="true"><use href="#i-help"></use></svg></button></div><input id="passGrade" type="number" step="any" value="50" disabled></div>
+              <div class="check-row"><label for="requireView"><input id="requireView" type="checkbox"><span>Exiger la consultation</span></label><button class="help-trigger" data-help="requireView" type="button" aria-label="Aide : Exiger la consultation"><svg class="ui-icon" aria-hidden="true"><use href="#i-help"></use></svg></button></div>
             </details>
             <p class="sim-footnote">Référence : code de Moodle 4.5, module mod_scorm. Les événements sont simulés dans votre navigateur et ne préjugent pas d'éventuelles adaptations de votre instance.</p>
           </div>
@@ -173,9 +173,9 @@
 
         <section id="tab-data" class="tab-panel" role="tabpanel">
           <div class="data-toolbar">
-            <div class="data-toolbar-row"><span id="saveIndicator" class="save-indicator">Aucune écriture</span><button id="forceCommitBtn" class="button compact" type="button" disabled>Simuler Commit</button></div>
+            <div class="data-toolbar-row"><span id="saveIndicator" class="save-indicator">Aucune écriture</span><button class="help-trigger" data-help="data" type="button" aria-label="Aide : données CMI"><svg class="ui-icon" aria-hidden="true"><use href="#i-help"></use></svg></button><button id="forceCommitBtn" class="button compact" type="button" disabled><svg class="ui-icon" aria-hidden="true"><use href="#i-database"></use></svg> Commit</button></div>
             <input id="dataFilter" type="search" placeholder="Filtrer cmi…" aria-label="Filtrer les données">
-            <p class="small-helper">Valeur actuelle et dernier enregistrement local confirmé. Modifier une valeur réalise une injection de test, pas un appel du package.</p>
+            <p class="small-helper">Valeurs en mémoire / sauvegardées. Éditer une valeur simule une injection.</p>
           </div>
           <div class="data-table-wrap">
             <table class="data-table">
@@ -189,7 +189,7 @@
 
         <section id="tab-log" class="tab-panel" role="tabpanel">
           <div class="log-toolbar">
-            <label for="logFilter">Afficher</label>
+            <label for="logFilter">Filtrer</label><button class="help-trigger" data-help="log" type="button" aria-label="Aide : journal"><svg class="ui-icon" aria-hidden="true"><use href="#i-help"></use></svg></button>
             <select id="logFilter"><option value="all">Tous les appels</option><option value="writes">Écritures</option><option value="lifecycle">Initialisation, Commit, Finish</option><option value="errors">Erreurs</option></select>
             <span id="logCount" class="muted">0 événement</span>
           </div>
@@ -206,6 +206,7 @@
   </div>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <div id="helpPopover" class="help-popover" role="tooltip" hidden></div>
 
   <script src="zip-reader.js"></script>
   <script src="manifest.js"></script>

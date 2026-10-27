@@ -159,7 +159,7 @@
     setError(code) { this.lastError = Number(code) || 0; }
 
     log(method, args, result) {
-      this.onLog({ time: new Date(), method, args: Array.from(args || []), result: String(result), errorCode: this.lastError });
+      this.onLog({ time: new Date(), method, args: Array.from(args || []), result: String(result), errorCode: this.lastError, sessionInitialized: this.initialized, sessionTerminated: this.terminated });
       return result;
     }
 

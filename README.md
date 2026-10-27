@@ -1,10 +1,19 @@
-# Lecteur SCORM et simulateur Moodle 4.5
+# SCORM Studio : lecteur SCORM et simulateur Moodle 4.5
 
 Application web **100 % statique**, conçue pour GitHub Pages. Aucun serveur applicatif, PHP, Node.js ou appel API Moodle n'est nécessaire pour utiliser le lecteur. Le SCORM ZIP est extrait **dans le navigateur**, puis servi par un Service Worker sur la même origine. Les tentatives et réglages sont conservés dans les espaces de stockage locaux de ce navigateur.
 
-## Nouvelles fonctionnalités
+## Interface et correction de cycle de vie
 
-- **Moodle 4.5** : visualisation de l'état du SCO, du score brut, de la note calculée, des règles d'achèvement et des causes probables d'un blocage.
+- **Mode sombre** activé par défaut, thème clair disponible dans la barre supérieure, choix mémorisé localement. L’apparence du SCO reste définie par son éditeur : seul le lecteur est thémé.
+- **Interface révisée** : espace de travail à trois panneaux, icônes SVG locales, contrôles à contraste élevé et présentation adaptée aux petits écrans.
+- **Menus déroulants** : couleurs explicites pour les options normales et sélectionnées, compatibles avec les palettes sombres et claires.
+- **Aides contextuelles** : boutons `?` à côté des métriques, réglages Moodle, tentatives et journaux ; survol, clic ou focus clavier ; fermeture avec Échap ou clic extérieur.
+- **Transitions SCORM** : lors du rechargement, de la navigation entre SCO, de la réinitialisation, du changement de tentative ou du chargement d’un autre package, l’API de l’ancien SCO reste disponible pendant `pagehide`/`unload` de l’iframe. La nouvelle session est créée **après** le déchargement. Une réinitialisation efface les données locales **après** les derniers appels de fermeture du SCO. En cas de délai de déchargement dépassé, le journal avertit que cette fermeture ne peut pas être garantie.
+- **Erreurs 301** : leur description distingue maintenant la lecture avant `LMSInitialize` de l’accès après terminaison ; consultez le journal pour déterminer l’origine d’un appel refusé.
+
+## Fonctionnalités principales
+
+- **Moodle** (simulation du comportement de Moodle 4.5) : visualisation de l'état du SCO, du score brut, de la note calculée, des règles d'achèvement et des causes probables d'un blocage.
 - **Données** : comparaison des valeurs CMI *en mémoire* et du dernier snapshot *validé localement* (`Commit` ou `Finish` / `Terminate`). Les cellules modifiables permettent d'injecter des données de test, identifiées comme telles dans le journal.
 - **Journal** : suivi chronologique des appels API, du SCO, de la tentative, des arguments, des résultats, des codes d'erreur et d'une courte interprétation. Filtres par appels, écritures, cycle de vie ou erreurs. Export JSON avec snapshots et paramètres (jusqu'aux 5 000 derniers événements, conservés pendant la visite).
 - **Tentatives** : création et consultation de plusieurs tentatives locales (maximum 100), notes des tentatives (meilleure, première, dernière achevée, moyenne) et notation des SCO (objets d'apprentissage, plus haute, moyenne, somme).
@@ -24,12 +33,12 @@ Les chemins utilisés sont relatifs au site, y compris dans une URL de projet `h
 ## Utilisation et interprétation
 
 1. Ouvrez le package et commencez le SCO.
-2. Dans **Moodle 4.5**, choisissez *Données en cours (projection)* pour voir l'évolution immédiate, y compris les modifications non validées. Choisissez *Données validées (Commit/Finish)* pour ne retenir que les valeurs persistées par l'émulateur.
+2. Dans **Moodle**, choisissez *Données en cours (projection)* pour voir l'évolution immédiate, y compris les modifications non validées. Choisissez *Données validées (Commit/Finish)* pour ne retenir que les valeurs persistées par l'émulateur.
 3. Ouvrez **Journal** pour suivre les appels `LMSInitialize`, `LMSSetValue`, `LMSCommit`, `LMSFinish` (SCORM 1.2) ou leur équivalent SCORM 2004.
 4. Reproduisez les réglages du véritable package Moodle dans **Paramètres Moodle simulés**. Ils sont enregistrés dans ce navigateur, sans lien avec un cours ou une activité Moodle existante.
 5. Vous pouvez créer des tentatives, comparer les états entre SCO et exporter le rapport JSON.
 
-Attention : le simulateur affiche des **estimations**, et non les données effectivement reçues par un serveur Moodle. Le snapshot « validé » simule une politique d'enregistrement explicite lors de `Commit` / `Finish`. La stratégie exacte de sauvegarde de Moodle, les éventuels réglages d'administration, le déclenchement des tâches et l'état du carnet de notes peuvent différer. L'achèvement lié à la consultation est approximé par le lancement du package ici. Les valeurs non validées sont abandonnées lors du changement de SCO ou du rechargement, à moins que le SCO ne réalise une validation explicite.
+Attention : le simulateur affiche des **estimations**, et non les données effectivement reçues par un serveur Moodle. Le snapshot « validé » simule une politique d'enregistrement explicite lors de `Commit` / `Finish`. La stratégie exacte de sauvegarde de Moodle, les éventuels réglages d'administration, le déclenchement des tâches et l'état du carnet de notes peuvent différer. L'achèvement lié à la consultation est approximé par le lancement du package ici. Avant un changement de SCO ou un rechargement, le lecteur laisse l’ancien contenu exécuter ses handlers de sortie, qui peuvent transmettre de nouvelles valeurs et lancer un `Commit` ou un `Finish`. Les valeurs encore non validées après le déchargement ne sont pas reprises dans la session suivante.
 
 **Référence du calcul** : branche officielle `MOODLE_405_STABLE` de Moodle :
 

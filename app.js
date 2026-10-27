@@ -8,6 +8,11 @@
   let swReady = false;
   let packageState = null;
   let runtime = null;
+  let transitionQueue = Promise.resolve();
+  let transitionSequence = 0;
+  let scoClosing = false;
+  let transitionBusy = false;
+  let packageLoading = false;
   let currentItem = null;
   let currentIndex = -1;
   let latestData = {};
@@ -18,6 +23,32 @@
   let learnerViewed = false;
   let storageState = { savedData: null, dirtyKeys: [], writtenKeys: [], lastPersistOk: null };
   const simSettingsKey = 'scorm-reader:moodle45:settings:v1';
+  const themeKey = 'scorm-studio:theme:v1';
+  const helpTexts = {
+    learner: ['Apprenant simulé', 'L’identifiant distingue les progressions conservées dans ce navigateur. Utilisez un identifiant de test : les informations ne sont pas envoyées à Moodle.'],
+    inspector: ['Inspection SCORM', 'Consultez la projection Moodle, les valeurs CMI, les appels API et le manifeste. Le lecteur enregistre localement les échanges du package.'],
+    moodle: ['Simulation Moodle 4.5', 'Estimation calculée localement à partir des traces SCORM et des paramètres choisis. Elle ne lit pas les réglages de votre plateforme Moodle.'],
+    attempt: ['Tentatives', 'Chaque tentative conserve ses données locales par SCO. Le calcul de la note peut retenir la meilleure tentative, la première, la dernière achevée ou leur moyenne.'],
+    scope: ['En cours ou validé', 'En cours : inclut les valeurs transmises depuis la dernière initialisation. Validé : ne retient que les données sauvegardées après Commit ou Finish/Terminate réussi.'],
+    status: ['Statut du SCO', 'Le statut est transmis par le contenu : cmi.core.lesson_status (SCORM 1.2), ou completion_status et success_status (SCORM 2004).'],
+    score: ['Score brut', 'Note numérique transmise par le SCO, généralement via cmi.core.score.raw. Elle peut être absente même si le module est achevé.'],
+    grade: ['Note de l’activité', 'Calcul local suivant les méthodes de notation et de sélection des tentatives. Cette note ne correspond pas nécessairement au carnet de notes réel de Moodle.'],
+    completion: ['Achèvement simulé', 'Résultat des conditions d’achèvement configurées plus bas. Un module completed n’est pas nécessairement passed.'],
+    completionRules: ['Conditions d’achèvement', 'Chaque condition correspond à une règle que vous activez dans les paramètres Moodle simulés. Le résultat est positif lorsque toutes les règles activées sont satisfaites.'],
+    gradeMethod: ['Méthode de notation', 'Détermine comment Moodle agrège les résultats des SCO : objets d’apprentissage achevés, meilleure note, moyenne ou somme des notes.'],
+    attemptMethod: ['Note des tentatives', 'Détermine quelle(s) tentative(s) servent à calculer la note portée au carnet de notes simulé.'],
+    maxGrade: ['Note maximale', 'Barème maximal défini dans l’activité Moodle. Le score brut est ramené à ce maximum dans la simulation.'],
+    statusRequired: ['Statut requis', 'Définit les statuts SCORM acceptés pour considérer la condition d’achèvement comme remplie : passed, completed ou les deux.'],
+    allScos: ['Tous les SCO', 'Exige un état d’achèvement pour chaque SCO du package. Cette option est pertinente pour les contenus comportant plusieurs éléments suivis.'],
+    minScoreEnabled: ['Score minimal', 'Active une condition portant sur la valeur du score brut renvoyée par un SCO, indépendamment de la note maximale Moodle.'],
+    minScore: ['Seuil du score brut', 'Valeur minimale exigée dans les données SCORM, par exemple 80 si le SCO transmet une note sur 100.'],
+    requireGrade: ['Recevoir une note', 'La condition nécessite une note calculable pour l’activité. Elle dépend des données reçues et du mode de notation.'],
+    passGradeEnabled: ['Note de passage', 'Impose que la note Moodle simulée atteigne le seuil du carnet de notes. Cette condition diffère du statut SCORM passed.'],
+    passGrade: ['Seuil Moodle', 'Note minimale sur le barème maximal de l’activité. Exemple : 12 pour une activité notée sur 20.'],
+    requireView: ['Consultation', 'Dans ce lecteur, le lancement du SCO compte comme une consultation simulée. Moodle dispose de ses propres événements de consultation.'],
+    data: ['Valeurs CMI', 'La colonne En cours montre la mémoire SCORM, Enregistré montre le dernier snapshot validé. Modifier manuellement une valeur produit une injection de test journalisée.'],
+    log: ['Journal API', 'Les événements s’affichent du plus récent au plus ancien. Les erreurs 301 indiquent généralement un accès avant Initialisation ou après fermeture de session. Exportez le JSON pour un diagnostic complet.']
+  };
   const simOptionIds = ['gradeMethod','attemptMethod','maxGrade','statusRequired','allScos','minScoreEnabled','minScore','requireGrade','passGradeEnabled','passGrade','requireView'];
 
   const mimeTypes = {
@@ -38,14 +69,16 @@
   async function init() {
     ['statusBadge','zipInput','resetSessionBtn','packageTitle','packageStandard','packageId','fileCount','learnerId','learnerName',
       'applyLearnerBtn','itemCount','courseOutline','prevBtn','nextBtn','reloadBtn','currentItemTitle','openWindowBtn','dropZone',
-      'emptyState','scoFrame','runtimeLabel','clearLogBtn','downloadLogBtn','logFilter','logCount',
+      'emptyState','scoFrame','themeToggle','helpPopover','runtimeLabel','clearLogBtn','downloadLogBtn','logFilter','logCount',
       'dataFilter','dataBody','saveIndicator','forceCommitBtn','logList','manifestView','toast',
       'attemptSelect','newAttemptBtn','moodleScope','moodleScopeNote','moodleStatus','moodleScore',
       'moodleGrade','moodleCompletion','completionCount','completionRules','scoStates','diagnosticList',
       ...simOptionIds].forEach(id => els[id] = document.getElementById(id));
 
     restoreSimulationOptions();
+    restoreTheme();
     bindEvents();
+    setupHelp();
     renderMoodle();
     swReady = await ensureServiceWorker();
     if (!swReady) {
@@ -95,12 +128,11 @@
 
     els.resetSessionBtn.addEventListener('click', () => {
       if (!runtime || !currentItem) return;
-      runtime.reset();
-      addSystemLog('Réinitialisation du SCO actif');
-      launchItem(currentItem, true);
-      showToast('Session du SCO réinitialisée.');
+      addSystemLog('Réinitialisation demandée (fermeture du SCO avant effacement)');
+      launchItem(currentItem, true, true).then(() => showToast('Session du SCO réinitialisée.'));
     });
 
+    els.themeToggle.addEventListener('click', () => setTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light'));
     els.clearLogBtn.addEventListener('click', () => { logs = []; renderLogs(); });
     els.downloadLogBtn.addEventListener('click', exportLogs);
     els.logFilter.addEventListener('change', renderLogs);
@@ -128,6 +160,17 @@
       renderMoodle();
     }));
 
+    // Labels stay keyboard-operable while the file input itself is visually hidden.
+    document.querySelectorAll('label[for="zipInput"]').forEach(label => {
+      label.tabIndex = 0;
+      label.setAttribute('role', 'button');
+      label.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          els.zipInput.click();
+        }
+      });
+    });
     document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => {
       document.querySelectorAll('.tab').forEach(t => { t.classList.toggle('active', t === tab); t.setAttribute('aria-selected', String(t === tab)); });
       document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.toggle('active', panel.id === `tab-${tab.dataset.tab}`));
@@ -181,6 +224,9 @@
   }
 
   async function loadPackage(file) {
+    if (packageLoading) return showToast('Un package est déjà en cours de préparation.', true);
+    packageLoading = true;
+    setTransitionBusy(true);
     try {
       if (!swReady) throw new Error('Le système de fichiers virtuel du lecteur n’est pas disponible dans ce navigateur.');
       setBadge('Analyse du ZIP…');
@@ -201,6 +247,13 @@
       setBadge('Installation des fichiers…');
       await installZipIntoCache(zip, virtualRoot);
 
+      // Keep the outgoing API operational through iframe pagehide/unload.
+      ++transitionSequence;
+      await transitionQueue.catch(() => {});
+      scoClosing = true;
+      await unloadScoFrame();
+      scoClosing = false;
+      uninstallGlobalApi();
       packageState = {
         fileName: file.name,
         zip,
@@ -227,12 +280,17 @@
       setBadge(manifest.standard, 'success');
 
       const first = manifest.launchableItems[0];
+      packageLoading = false;
       await launchItem(first);
       showToast(`Package chargé : ${manifest.title}`);
     } catch (error) {
       console.error(error);
       setBadge('Erreur', 'error');
       showToast(error.message || String(error), true, 7000);
+    } finally {
+      packageLoading = false;
+      scoClosing = false;
+      setTransitionBusy(false);
     }
   }
 
@@ -298,62 +356,131 @@
     return ul;
   }
 
-  async function launchItem(item, forceReload = false) {
-    if (!packageState || !item?.href) return;
+  function setTransitionBusy(value) {
+    transitionBusy = value;
+    const ready = Boolean(packageState && currentItem) && !value;
+    els.reloadBtn.disabled = !ready;
+    els.resetSessionBtn.disabled = !ready;
+    els.openWindowBtn.disabled = !ready;
+    els.newAttemptBtn.disabled = value || !packageState || attemptCount >= 100;
+    if (value) {
+      els.prevBtn.disabled = true;
+      els.nextBtn.disabled = true;
+    } else updateNavButtons();
+  }
 
-    if (runtime && runtime.dirtyKeys.size) {
-      addSystemLog('Changement/rechargement du SCO : écritures non validées potentiellement perdues');
-      showToast('Écritures non validées : elles ne seront pas reprises dans ce SCO.', true, 5000);
+  function unloadScoFrame() {
+    const frame = els.scoFrame;
+    if (frame.hidden || !frame.getAttribute('src') || frame.getAttribute('src') === 'about:blank') {
+      frame.hidden = true;
+      return Promise.resolve();
     }
-
-    currentItem = item;
-    const launchedAttempt = attemptNumber;
-    const launchedRuntimeKey = runtimePackageKey(item.identifier, launchedAttempt);
-    currentIndex = packageState.manifest.launchableItems.findIndex(candidate => candidate.identifier === item.identifier);
-    const learnerId = els.learnerId.value.trim() || 'learner-001';
-    const learnerName = els.learnerName.value.trim() || 'Apprenant Test';
-    runtime = new ScormRuntime({
-      standard: packageState.manifest.standard,
-      packageKey: launchedRuntimeKey,
-      learnerId,
-      learnerName,
-      metadata: packageState.manifest.metadata,
-      onLog: entry => {
-        entry.scoId = item.identifier;
-        entry.scoTitle = item.title;
-        entry.attempt = launchedAttempt;
-        logs.push(entry);
-        if (logs.length > 5000) logs.shift();
-        renderLogs();
-        renderMoodle();
-      },
-      onChange: (data, state) => {
-        if (runtime && runtime.packageKey !== launchedRuntimeKey) return;
-        latestData = data;
-        storageState = state;
-        renderData(); updateRuntimeLabel(); renderMoodle();
-      },
-      onNavigate: request => handleNavigationRequest(request)
+    return new Promise(resolve => {
+      let settled = false;
+      let timeout;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        frame.removeEventListener('load', onLoad);
+        frame.hidden = true;
+        resolve();
+      };
+      const onLoad = () => {
+        // Preserve the old API until the iframe has finished firing pagehide/unload.
+        // A short next-task delay also lets synchronous unload handlers finish.
+        setTimeout(finish, 0);
+      };
+      frame.addEventListener('load', onLoad);
+      timeout = setTimeout(() => {
+        addSystemLog('Délai de déchargement dépassé : la fermeture du SCO est incertaine');
+        finish();
+      }, 2500);
+      frame.src = 'about:blank';
     });
-    installGlobalApi(runtime);
-    latestData = { ...runtime.data };
-    storageState = runtime.getStorageState();
-    learnerViewed = true;
-    renderData();
-    renderMoodle();
+  }
 
-    const url = launchUrl(item.href);
-    els.emptyState.hidden = true;
-    els.scoFrame.hidden = false;
-    els.scoFrame.src = forceReload ? appendCacheBuster(url) : url;
-    els.currentItemTitle.textContent = item.title;
-    els.reloadBtn.disabled = false;
-    els.openWindowBtn.disabled = false;
-    els.resetSessionBtn.disabled = false;
-    updateNavButtons();
-    updateOutlineActive();
-    updateRuntimeLabel();
-    renderMoodle();
+  function launchItem(item, forceReload = false, resetAfterUnload = false) {
+    if (!packageState || !item?.href || packageLoading) return Promise.resolve();
+    const packageAtRequest = packageState;
+    const selectedAttempt = attemptNumber;
+    const sequence = ++transitionSequence;
+    const transition = transitionQueue.catch(() => {}).then(async () => {
+      if (sequence !== transitionSequence || packageState !== packageAtRequest) return;
+      setTransitionBusy(true);
+      scoClosing = true;
+      try {
+        const previous = runtime;
+        if (previous) addSystemLog('Fermeture du SCO sortant : API maintenue jusqu’au déchargement');
+        await unloadScoFrame();
+        if (sequence !== transitionSequence || packageState !== packageAtRequest) return;
+        if (resetAfterUnload && previous) {
+          try { localStorage.removeItem(previous.storageKey); }
+          catch { showToast('Effacement local impossible. Vérifiez le stockage du navigateur.', true); }
+          addSystemLog('Données du SCO effacées après la fermeture');
+        } else if (previous?.dirtyKeys.size) {
+          addSystemLog(`${previous.dirtyKeys.size} écriture(s) non validée(s) à la fermeture du SCO`);
+          showToast('Certaines données non validées par Commit/Finish risquent d’être perdues.', true, 5500);
+        }
+        runtime = null;
+        uninstallGlobalApi();
+        currentItem = item;
+        currentIndex = packageState.manifest.launchableItems.findIndex(candidate => candidate.identifier === item.identifier);
+        const launchedRuntimeKey = runtimePackageKey(item.identifier, selectedAttempt);
+        const learnerId = els.learnerId.value.trim() || 'learner-001';
+        const learnerName = els.learnerName.value.trim() || 'Apprenant Test';
+        let instance;
+        instance = new ScormRuntime({
+          standard: packageState.manifest.standard,
+          packageKey: launchedRuntimeKey,
+          learnerId, learnerName,
+          metadata: packageState.manifest.metadata,
+          onLog: entry => {
+            entry.scoId = item.identifier;
+            entry.scoTitle = item.title;
+            entry.attempt = selectedAttempt;
+            logs.push(entry);
+            if (logs.length > 5000) logs.shift();
+            renderLogs();
+            renderMoodle();
+          },
+          onChange: (data, state) => {
+            // Check the instance, not just its key: reloads reuse the same key.
+            if (runtime !== instance) return;
+            latestData = data;
+            storageState = state;
+            renderData(); updateRuntimeLabel(); renderMoodle();
+          },
+          onNavigate: request => {
+            if (runtime === instance && !scoClosing) handleNavigationRequest(request);
+          }
+        });
+        runtime = instance;
+        installGlobalApi(instance);
+        latestData = { ...runtime.data };
+        storageState = runtime.getStorageState();
+        learnerViewed = true;
+        renderData();
+        renderMoodle();
+        els.emptyState.hidden = true;
+        els.scoFrame.hidden = false;
+        const url = launchUrl(item.href);
+        els.scoFrame.src = forceReload ? appendCacheBuster(url) : url;
+        els.currentItemTitle.textContent = item.title;
+        updateOutlineActive();
+        updateRuntimeLabel();
+        renderMoodle();
+      } finally {
+        scoClosing = false;
+        setTransitionBusy(false);
+      }
+    });
+    transitionQueue = transition;
+    return transition.catch(error => {
+      console.error(error);
+      addSystemLog(`Transition SCO en échec : ${error.message || error}`);
+      showToast('Impossible de charger le SCO.', true);
+    });
   }
 
   function launchUrl(href) {
@@ -398,6 +525,7 @@
   }
 
   function updateNavButtons() {
+    if (transitionBusy) { els.prevBtn.disabled = true; els.nextBtn.disabled = true; return; }
     const total = packageState?.manifest.launchableItems.length || 0;
     els.prevBtn.disabled = currentIndex <= 0;
     els.nextBtn.disabled = currentIndex < 0 || currentIndex >= total - 1;
@@ -591,7 +719,7 @@
     els.saveIndicator.textContent = !runtime ? 'Aucune session' : storageState.dirtyKeys.length ?
       `${storageState.dirtyKeys.length} écriture(s) en attente` : storageState.savedData ? 'Données validées' : 'Aucun Commit/Finish';
     els.saveIndicator.classList.toggle('pending', Boolean(storageState.dirtyKeys.length));
-    els.forceCommitBtn.disabled = !runtime || !runtime.initialized || runtime.terminated;
+    els.forceCommitBtn.disabled = transitionBusy || !runtime || !runtime.initialized || runtime.terminated;
     if (!entries.length) {
       const tr = document.createElement('tr'); const td = document.createElement('td');
       td.colSpan = 3; td.className = 'empty-cell'; td.textContent = 'Aucune donnée correspondant au filtre.';
@@ -617,7 +745,13 @@
     const method = entry.method;
     const key = String(entry.args[0] || '');
     const val = String(entry.args[1] ?? '');
-    if (entry.errorCode) return `Appel refusé par l’API (code ${entry.errorCode}).`;
+    if (entry.errorCode) {
+      if (entry.errorCode === 301 && /^LMS/.test(method)) {
+        if (entry.sessionTerminated) return 'Session déjà terminée : appel SCORM après LMSFinish.';
+        if (!entry.sessionInitialized) return 'Appel avant LMSInitialize : la session SCORM n’est pas ouverte.';
+      }
+      return `Appel refusé par l’API (code ${entry.errorCode}).`;
+    }
     if (/^(LMSSetValue|SetValue|SIM:modifier)$/.test(method)) {
       if (/lesson_status|completion_status|success_status/.test(key)) return `Statut déclaré : ${val}.`;
       if (/score\.(raw|scaled)/.test(key)) return `Score transmis : ${val}.`;
@@ -684,6 +818,73 @@
     a.href = url; a.download = `journal-scorm-${new Date().toISOString().replace(/[:.]/g,'-')}.json`;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
+
+  function restoreTheme() {
+    let theme = 'dark';
+    try { theme = localStorage.getItem(themeKey) === 'light' ? 'light' : 'dark'; } catch {}
+    setTheme(theme);
+  }
+  function setTheme(theme) {
+    document.documentElement.dataset.theme = theme;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#0a1020' : '#eef3f7');
+    els.themeToggle.setAttribute('aria-label', theme === 'dark' ? 'Activer le mode clair' : 'Activer le mode sombre');
+    els.themeToggle.title = theme === 'dark' ? 'Mode clair' : 'Mode sombre';
+    els.themeToggle.querySelector('use').setAttribute('href', theme === 'dark' ? '#i-sun' : '#i-moon');
+    try { localStorage.setItem(themeKey, theme); } catch {}
+  }
+
+  function setupHelp() {
+    let active = null;
+    let sticky = false;
+    const panel = els.helpPopover;
+    function hide() {
+      if (!active) return;
+      active.setAttribute('aria-expanded', 'false');
+      active = null;
+      sticky = false;
+      panel.hidden = true;
+    }
+    function show(button, pin = false) {
+      const data = helpTexts[button.dataset.help];
+      if (!data) return;
+      if (active && active !== button) hide();
+      active = button;
+      sticky = pin;
+      panel.replaceChildren();
+      const heading = document.createElement('strong'); heading.textContent = data[0];
+      const paragraph = document.createElement('p'); paragraph.textContent = data[1];
+      panel.append(heading, paragraph);
+      panel.hidden = false;
+      button.setAttribute('aria-expanded', 'true');
+      button.setAttribute('aria-describedby', 'helpPopover');
+      const rect = button.getBoundingClientRect();
+      const width = panel.getBoundingClientRect().width;
+      const height = panel.getBoundingClientRect().height;
+      const left = Math.max(12, Math.min(window.innerWidth - width - 12, rect.left - width / 2 + rect.width / 2));
+      const top = rect.bottom + height + 10 < window.innerHeight
+        ? rect.bottom + 8 : Math.max(12, rect.top - height - 8);
+      panel.style.left = `${left}px`;
+      panel.style.top = `${top}px`;
+    }
+    document.querySelectorAll('.help-trigger').forEach(button => {
+      button.setAttribute('aria-expanded', 'false');
+      button.addEventListener('mouseenter', () => { if (!sticky) show(button); });
+      button.addEventListener('mouseleave', () => { if (!sticky) hide(); });
+      button.addEventListener('focus', () => { if (!sticky) show(button); });
+      button.addEventListener('blur', () => { if (!sticky) hide(); });
+      button.addEventListener('click', event => {
+        event.preventDefault(); event.stopPropagation();
+        if (active === button && sticky) hide();
+        else show(button, true);
+      });
+    });
+    document.addEventListener('pointerdown', event => {
+      if (active && !event.target.closest('.help-trigger')) hide();
+    });
+    document.addEventListener('keydown', event => { if (event.key === 'Escape') hide(); });
+    window.addEventListener('resize', hide);
+    document.addEventListener('scroll', hide, true);
   }
 
   function setBadge(text, type) {
