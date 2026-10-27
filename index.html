@@ -4,14 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <title>Lecteur SCORM</title>
+  <title>Lecteur SCORM et simulateur Moodle 4.5</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div class="app-shell">
     <header class="topbar">
       <div class="brand">
-        <strong>Lecteur SCORM</strong>
+        <strong>Lecteur SCORM <span class="brand-extension">et simulateur Moodle 4.5</span></strong>
         <span id="statusBadge" class="badge">Aucun package</span>
       </div>
       <div class="top-actions">
@@ -83,36 +83,122 @@
             <div class="eyebrow">Inspection LMS</div>
             <strong id="runtimeLabel">Runtime inactif</strong>
           </div>
-          <button id="clearLogBtn" class="button compact" type="button">Vider le journal</button>
+          <button id="downloadLogBtn" class="button compact" type="button" disabled>Export JSON</button>
+          <button id="clearLogBtn" class="button compact" type="button">Vider</button>
         </div>
 
         <div class="tabs" role="tablist">
-          <button class="tab active" data-tab="data" role="tab">Données</button>
-          <button class="tab" data-tab="log" role="tab">Journal</button>
-          <button class="tab" data-tab="manifest" role="tab">Manifeste</button>
+          <button class="tab active" data-tab="moodle" role="tab" aria-selected="true">Moodle 4.5</button>
+          <button class="tab" data-tab="data" role="tab" aria-selected="false">Données</button>
+          <button class="tab" data-tab="log" role="tab" aria-selected="false">Journal</button>
+          <button class="tab" data-tab="manifest" role="tab" aria-selected="false">Manifeste</button>
         </div>
 
-        <section id="tab-data" class="tab-panel active">
+        <section id="tab-moodle" class="tab-panel active" role="tabpanel">
+          <div class="inspector-scroll moodle-view">
+            <div class="sim-head">
+              <strong>Projection d'une activité Package SCORM</strong>
+              <span class="muted">Simulation locale, aucun accès à Moodle</span>
+            </div>
+            <div class="moodle-attempt">
+              <label for="attemptSelect">Tentative</label>
+              <select id="attemptSelect" aria-label="Tentative affichée"></select>
+              <button id="newAttemptBtn" class="button compact" type="button" disabled>Nouvelle tentative</button>
+            </div>
+            <div class="data-toolbar scope-toolbar">
+              <label for="moodleScope">Base du calcul</label>
+              <select id="moodleScope">
+                <option value="live">Données en cours (projection)</option>
+                <option value="saved">Données validées (Commit/Finish)</option>
+              </select>
+            </div>
+            <div class="moodle-summary" aria-live="polite">
+              <div class="sim-metric"><span>Statut du SCO actif</span><strong id="moodleStatus">Aucun</strong></div>
+              <div class="sim-metric"><span>Score brut du SCO</span><strong id="moodleScore">Non envoyé</strong></div>
+              <div class="sim-metric"><span>Note de l'activité</span><strong id="moodleGrade">Non calculable</strong></div>
+              <div class="sim-metric"><span>Achèvement simulé</span><strong id="moodleCompletion">Non configuré</strong></div>
+            </div>
+            <p id="moodleScopeNote" class="sim-note"></p>
+            <div class="sim-subtitle">Conditions d'achèvement <span id="completionCount" class="muted"></span></div>
+            <div id="completionRules" class="sim-conditions"><p class="empty-hint">Aucune condition paramétrée.</p></div>
+            <div class="sim-subtitle">État des SCO</div>
+            <div id="scoStates" class="sco-states"><p class="empty-hint">Chargez un package.</p></div>
+            <div class="sim-subtitle">Diagnostic</div>
+            <div id="diagnosticList" class="diagnostics"><p class="empty-hint">En attente des données.</p></div>
+            <details class="sim-config" open>
+              <summary>Paramètres Moodle simulés</summary>
+              <p class="sim-note">Reproduisez les réglages réels de votre activité Moodle. Ils sont indépendants du SCORM.</p>
+              <label>Méthode de notation
+                <select id="gradeMethod">
+                  <option value="objects">Objets d'apprentissage</option>
+                  <option value="highest" selected>Note la plus haute</option>
+                  <option value="average">Note moyenne</option>
+                  <option value="sum">Somme des notes</option>
+                </select>
+              </label>
+              <label>Note des tentatives
+                <select id="attemptMethod">
+                  <option value="highest">Meilleure tentative</option>
+                  <option value="average">Moyenne des tentatives</option>
+                  <option value="first">Première tentative</option>
+                  <option value="last">Dernière tentative achevée</option>
+                </select>
+              </label>
+              <label>Note maximale
+                <input id="maxGrade" type="number" min="0" max="10000" step="1" value="100">
+              </label>
+              <label>Statut requis
+                <select id="statusRequired">
+                  <option value="none">Aucun</option>
+                  <option value="passed">Passed</option>
+                  <option value="completed">Completed</option>
+                  <option value="either">Passed ou Completed</option>
+                </select>
+              </label>
+              <label class="check-label"><input id="allScos" type="checkbox"> Tous les SCO doivent être achevés</label>
+              <label class="check-label"><input id="minScoreEnabled" type="checkbox"> Exiger un score SCORM minimal</label>
+              <label>Score brut minimal
+                <input id="minScore" type="number" step="any" value="80" disabled>
+              </label>
+              <label class="check-label"><input id="requireGrade" type="checkbox"> Exiger une note</label>
+              <label class="check-label"><input id="passGradeEnabled" type="checkbox"> Exiger une note de passage</label>
+              <label>Note de passage (barème Moodle)
+                <input id="passGrade" type="number" step="any" value="50" disabled>
+              </label>
+              <label class="check-label"><input id="requireView" type="checkbox"> Exiger la consultation de l'activité</label>
+            </details>
+            <p class="sim-footnote">Référence : code de Moodle 4.5, module mod_scorm. Les événements sont simulés dans votre navigateur et ne préjugent pas d'éventuelles adaptations de votre instance.</p>
+          </div>
+        </section>
+
+        <section id="tab-data" class="tab-panel" role="tabpanel">
           <div class="data-toolbar">
+            <div class="data-toolbar-row"><span id="saveIndicator" class="save-indicator">Aucune écriture</span><button id="forceCommitBtn" class="button compact" type="button" disabled>Simuler Commit</button></div>
             <input id="dataFilter" type="search" placeholder="Filtrer cmi…" aria-label="Filtrer les données">
+            <p class="small-helper">Valeur actuelle et dernier enregistrement local confirmé. Modifier une valeur réalise une injection de test, pas un appel du package.</p>
           </div>
           <div class="data-table-wrap">
             <table class="data-table">
-              <thead><tr><th>Élément</th><th>Valeur</th></tr></thead>
+              <thead><tr><th>Élément</th><th>En cours</th><th>Enregistré</th></tr></thead>
               <tbody id="dataBody">
-                <tr><td colspan="2" class="empty-cell">Aucune donnée de session.</td></tr>
+                <tr><td colspan="3" class="empty-cell">Aucune donnée de session.</td></tr>
               </tbody>
             </table>
           </div>
         </section>
 
-        <section id="tab-log" class="tab-panel">
+        <section id="tab-log" class="tab-panel" role="tabpanel">
+          <div class="log-toolbar">
+            <label for="logFilter">Afficher</label>
+            <select id="logFilter"><option value="all">Tous les appels</option><option value="writes">Écritures</option><option value="lifecycle">Initialisation, Commit, Finish</option><option value="errors">Erreurs</option></select>
+            <span id="logCount" class="muted">0 événement</span>
+          </div>
           <div id="logList" class="log-list">
             <p class="empty-hint">Les appels SCORM apparaîtront ici.</p>
           </div>
         </section>
 
-        <section id="tab-manifest" class="tab-panel">
+        <section id="tab-manifest" class="tab-panel" role="tabpanel">
           <pre id="manifestView" class="manifest-view">Aucun manifeste chargé.</pre>
         </section>
       </aside>
@@ -124,6 +210,7 @@
   <script src="zip-reader.js"></script>
   <script src="manifest.js"></script>
   <script src="scorm-runtime.js"></script>
+  <script src="moodle-simulator.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

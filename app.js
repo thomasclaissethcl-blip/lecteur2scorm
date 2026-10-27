@@ -13,6 +13,12 @@
   let latestData = {};
   let logs = [];
   let toastTimer = null;
+  let attemptNumber = 1;
+  let attemptCount = 1;
+  let learnerViewed = false;
+  let storageState = { savedData: null, dirtyKeys: [], writtenKeys: [], lastPersistOk: null };
+  const simSettingsKey = 'scorm-reader:moodle45:settings:v1';
+  const simOptionIds = ['gradeMethod','attemptMethod','maxGrade','statusRequired','allScos','minScoreEnabled','minScore','requireGrade','passGradeEnabled','passGrade','requireView'];
 
   const mimeTypes = {
     html: 'text/html; charset=utf-8', htm: 'text/html; charset=utf-8', xhtml: 'application/xhtml+xml',
@@ -32,9 +38,15 @@
   async function init() {
     ['statusBadge','zipInput','resetSessionBtn','packageTitle','packageStandard','packageId','fileCount','learnerId','learnerName',
       'applyLearnerBtn','itemCount','courseOutline','prevBtn','nextBtn','reloadBtn','currentItemTitle','openWindowBtn','dropZone',
-      'emptyState','scoFrame','runtimeLabel','clearLogBtn','dataFilter','dataBody','logList','manifestView','toast'].forEach(id => els[id] = document.getElementById(id));
+      'emptyState','scoFrame','runtimeLabel','clearLogBtn','downloadLogBtn','logFilter','logCount',
+      'dataFilter','dataBody','saveIndicator','forceCommitBtn','logList','manifestView','toast',
+      'attemptSelect','newAttemptBtn','moodleScope','moodleScopeNote','moodleStatus','moodleScore',
+      'moodleGrade','moodleCompletion','completionCount','completionRules','scoStates','diagnosticList',
+      ...simOptionIds].forEach(id => els[id] = document.getElementById(id));
 
+    restoreSimulationOptions();
     bindEvents();
+    renderMoodle();
     swReady = await ensureServiceWorker();
     if (!swReady) {
       setBadge('Service Worker indisponible', 'error');
@@ -75,6 +87,8 @@
     });
 
     els.applyLearnerBtn.addEventListener('click', () => {
+      if (runtime?.dirtyKeys.size && !confirm('Des écritures SCORM non validées seront perdues. Continuer ?')) return;
+      restoreAttempts();
       if (currentItem) launchItem(currentItem, true);
       else showToast('Identité de l’apprenant prête pour le prochain SCO.');
     });
@@ -82,17 +96,40 @@
     els.resetSessionBtn.addEventListener('click', () => {
       if (!runtime || !currentItem) return;
       runtime.reset();
-      logs = [];
-      renderLogs();
+      addSystemLog('Réinitialisation du SCO actif');
       launchItem(currentItem, true);
       showToast('Session du SCO réinitialisée.');
     });
 
     els.clearLogBtn.addEventListener('click', () => { logs = []; renderLogs(); });
+    els.downloadLogBtn.addEventListener('click', exportLogs);
+    els.logFilter.addEventListener('change', renderLogs);
     els.dataFilter.addEventListener('input', renderData);
+    els.forceCommitBtn.addEventListener('click', () => {
+      if (!runtime || !runtime.initialized || runtime.terminated) return;
+      const result = runtime.standard === 'SCORM 2004' ? runtime.api.Commit('') : runtime.api.LMSCommit('');
+      showToast(result === 'true' ? 'Validation manuelle simulée.' : 'Échec de la validation.', result !== 'true');
+    });
+    els.moodleScope.addEventListener('change', renderMoodle);
+    els.newAttemptBtn.addEventListener('click', startNewAttempt);
+    els.attemptSelect.addEventListener('change', () => {
+      if (runtime?.dirtyKeys.size && !confirm('Des écritures non validées seront perdues. Changer de tentative ?')) {
+        els.attemptSelect.value = String(attemptNumber); return;
+      }
+      attemptNumber = Number(els.attemptSelect.value) || 1;
+      if (currentItem) launchItem(currentItem, true);
+      renderMoodle();
+    });
+    simOptionIds.forEach(id => els[id].addEventListener('change', () => {
+      els.minScore.disabled = !els.minScoreEnabled.checked;
+      els.passGrade.disabled = !els.passGradeEnabled.checked;
+      els.maxGrade.disabled = els.gradeMethod.value === 'objects';
+      saveSimulationOptions();
+      renderMoodle();
+    }));
 
     document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => {
-      document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t === tab));
+      document.querySelectorAll('.tab').forEach(t => { t.classList.toggle('active', t === tab); t.setAttribute('aria-selected', String(t === tab)); });
       document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.toggle('active', panel.id === `tab-${tab.dataset.tab}`));
     }));
   }
@@ -178,10 +215,14 @@
       currentIndex = -1;
       logs = [];
       latestData = {};
+      storageState = { savedData: null, dirtyKeys: [], writtenKeys: [], lastPersistOk: null };
+      learnerViewed = false;
       uninstallGlobalApi();
+      restoreAttempts();
       renderPackage();
       renderLogs();
       renderData();
+      renderMoodle();
       els.manifestView.textContent = manifest.rawXml;
       setBadge(manifest.standard, 'success');
 
@@ -260,28 +301,46 @@
   async function launchItem(item, forceReload = false) {
     if (!packageState || !item?.href) return;
 
-    if (runtime && currentItem && currentItem.identifier !== item.identifier) {
-      runtime.persist();
+    if (runtime && runtime.dirtyKeys.size) {
+      addSystemLog('Changement/rechargement du SCO : écritures non validées potentiellement perdues');
+      showToast('Écritures non validées : elles ne seront pas reprises dans ce SCO.', true, 5000);
     }
 
     currentItem = item;
+    const launchedAttempt = attemptNumber;
+    const launchedRuntimeKey = runtimePackageKey(item.identifier, launchedAttempt);
     currentIndex = packageState.manifest.launchableItems.findIndex(candidate => candidate.identifier === item.identifier);
-    logs = [];
-    renderLogs();
-
     const learnerId = els.learnerId.value.trim() || 'learner-001';
     const learnerName = els.learnerName.value.trim() || 'Apprenant Test';
     runtime = new ScormRuntime({
       standard: packageState.manifest.standard,
-      packageKey: `${packageState.hash}:${item.identifier}`,
+      packageKey: launchedRuntimeKey,
       learnerId,
       learnerName,
       metadata: packageState.manifest.metadata,
-      onLog: entry => { logs.push(entry); if (logs.length > 600) logs.shift(); renderLogs(); },
-      onChange: data => { latestData = data; renderData(); updateRuntimeLabel(); },
+      onLog: entry => {
+        entry.scoId = item.identifier;
+        entry.scoTitle = item.title;
+        entry.attempt = launchedAttempt;
+        logs.push(entry);
+        if (logs.length > 5000) logs.shift();
+        renderLogs();
+        renderMoodle();
+      },
+      onChange: (data, state) => {
+        if (runtime && runtime.packageKey !== launchedRuntimeKey) return;
+        latestData = data;
+        storageState = state;
+        renderData(); updateRuntimeLabel(); renderMoodle();
+      },
       onNavigate: request => handleNavigationRequest(request)
     });
     installGlobalApi(runtime);
+    latestData = { ...runtime.data };
+    storageState = runtime.getStorageState();
+    learnerViewed = true;
+    renderData();
+    renderMoodle();
 
     const url = launchUrl(item.href);
     els.emptyState.hidden = true;
@@ -294,6 +353,7 @@
     updateNavButtons();
     updateOutlineActive();
     updateRuntimeLabel();
+    renderMoodle();
   }
 
   function launchUrl(href) {
@@ -355,52 +415,275 @@
     els.runtimeLabel.textContent = `${runtime.standard} · ${state}`;
   }
 
+  function learnerKey() { return (els.learnerId.value || '').trim() || 'learner-001'; }
+  function runtimePackageKey(itemId, attempt) {
+    // Attempt 1 keeps the old v1 storage key for backward compatibility.
+    return `${packageState.hash}:${itemId}${attempt > 1 ? ':attempt=' + attempt : ''}`;
+  }
+  function attemptsStorageKey() { return `scorm-reader:attempts:v1:${packageState.hash}:${learnerKey()}`; }
+  function restoreAttempts() {
+    attemptCount = 1;
+    try { attemptCount = Math.max(1, Math.min(100, Number(localStorage.getItem(attemptsStorageKey())) || 1)); } catch {}
+    attemptNumber = attemptCount;
+    updateAttemptsControl();
+  }
+  function updateAttemptsControl() {
+    els.attemptSelect.replaceChildren();
+    for (let n = 1; n <= attemptCount; n++) {
+      const opt = new Option(`N° ${n}`, String(n));
+      els.attemptSelect.appendChild(opt);
+    }
+    els.attemptSelect.value = String(attemptNumber);
+    els.newAttemptBtn.disabled = !packageState || attemptCount >= 100;
+  }
+  function startNewAttempt() {
+    if (!packageState) return;
+    if (runtime?.dirtyKeys.size && !confirm('Les écritures SCORM non validées seront perdues. Commencer une nouvelle tentative ?')) return;
+    if (attemptCount >= 100) return showToast('Limite de 100 tentatives locales atteinte.', true);
+    attemptNumber = ++attemptCount;
+    try { localStorage.setItem(attemptsStorageKey(), String(attemptCount)); }
+    catch { showToast('Impossible de mémoriser le compteur de tentatives.', true); }
+    updateAttemptsControl();
+    addSystemLog(`Nouvelle tentative n° ${attemptNumber}`);
+    if (currentItem) launchItem(currentItem, true);
+    renderMoodle();
+  }
+  function restoreSimulationOptions() {
+    let opts = {};
+    try { opts = JSON.parse(localStorage.getItem(simSettingsKey)) || {}; } catch {}
+    simOptionIds.forEach(id => {
+      if (!(id in opts)) return;
+      if (els[id].type === 'checkbox') els[id].checked = Boolean(opts[id]);
+      else if (Array.from(els[id].options || []).length) {
+        if (Array.from(els[id].options).some(option => option.value === String(opts[id]))) els[id].value = String(opts[id]);
+      } else els[id].value = String(opts[id]);
+    });
+    els.minScore.disabled = !els.minScoreEnabled.checked;
+    els.passGrade.disabled = !els.passGradeEnabled.checked;
+    els.maxGrade.disabled = els.gradeMethod.value === 'objects';
+  }
+  function getSimulationOptions() {
+    const opts = {};
+    simOptionIds.forEach(id => opts[id] = els[id].type === 'checkbox' ? els[id].checked : els[id].value);
+    return opts;
+  }
+  function saveSimulationOptions() {
+    try { localStorage.setItem(simSettingsKey, JSON.stringify(getSimulationOptions())); } catch {}
+  }
+  function getStoredSco(itemId, n) {
+    const storageKey = `scorm-reader:v1:${runtimePackageKey(itemId, n)}:${packageState.manifest.standard}:${learnerKey()}`;
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed.data !== 'object' || !parsed.data) return null;
+      return { data: parsed.data, writtenKeys: parsed.writtenKeys || [] };
+    } catch { return null; }
+  }
+  function collectAttempts(scope) {
+    const attempts = [];
+    for (let n = 1; n <= attemptCount; n++) {
+      const scos = {};
+      for (const item of packageState.manifest.launchableItems) {
+        const stored = getStoredSco(item.identifier, n);
+        if (stored) scos[item.identifier] = stored;
+        if (scope === 'live' && n === attemptNumber && item.identifier === currentItem?.identifier && runtime) {
+          // Live override is projection only. It never mutates the stored snapshot.
+          scos[item.identifier] = { data: { ...runtime.data }, writtenKeys: Array.from(runtime.writtenKeys) };
+        }
+      }
+      attempts.push({ number: n, scos });
+    }
+    return attempts;
+  }
+  function getMoodleResult(scope) {
+    if (!packageState) return null;
+    return MoodleSimulator.evaluate({
+      standard: packageState.manifest.standard,
+      items: packageState.manifest.launchableItems,
+      attempts: collectAttempts(scope),
+      options: getSimulationOptions(),
+      viewed: learnerViewed,
+      pending: scope === 'live' && Boolean(runtime?.dirtyKeys.size),
+      commitError: storageState.lastPersistOk === false,
+      initialized: runtime?.initialized,
+      ended: runtime?.terminated
+    });
+  }
+  function displayNumber(value) {
+    return new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 }).format(value);
+  }
+  function renderMoodle() {
+    if (!els.moodleStatus) return;
+    if (!packageState) {
+      els.moodleStatus.textContent = 'Aucun';
+      els.moodleScore.textContent = 'Non envoyé';
+      els.moodleGrade.textContent = 'Non calculable';
+      els.moodleCompletion.textContent = 'Non configuré';
+      els.completionCount.textContent = '';
+      els.completionRules.replaceChildren();
+      els.scoStates.replaceChildren();
+      els.diagnosticList.replaceChildren();
+      els.moodleScopeNote.textContent = 'Chargez un package SCORM pour débuter.';
+      return;
+    }
+    const scope = els.moodleScope.value;
+    const result = getMoodleResult(scope);
+    const active = result.attempts.find(a => a.number === attemptNumber)?.rows.find(r => r.id === currentItem?.identifier);
+    const saved = scope === 'saved';
+    els.moodleStatus.textContent = active?.status || 'Aucun';
+    els.moodleScore.textContent = active?.score === null || !active ? 'Non envoyé' : displayNumber(active.score);
+    els.moodleGrade.textContent = result.gradebookGrade === null ? 'Aucune note' :
+      `${displayNumber(result.gradebookGrade)} / ${displayNumber(result.maxGrade)}`;
+    els.moodleCompletion.textContent = {complete:'Achevé', incomplete:'Non achevé', 'not-configured':'Non configuré'}[result.completion];
+    els.moodleCompletion.className = result.completion === 'complete' ? 'state-good' : result.completion === 'incomplete' ? 'state-bad' : 'state-neutral';
+    els.completionCount.textContent = result.conditions.length ? `${result.conditions.filter(c => c.ok).length}/${result.conditions.length}` : '';
+    els.moodleScopeNote.textContent = saved
+      ? 'Données enregistrées localement lors d’un Commit/Finish réussi. Ce stockage représente un substitut de LMS, pas la base de données Moodle.'
+      : 'Projection en direct depuis les valeurs CMI en mémoire, y compris les écritures qui attendent Commit/Finish. Les règles de Moodle sont appliquées aux tentatives locales.';
+    els.completionRules.replaceChildren();
+    if (!result.conditions.length) addParagraph(els.completionRules, 'Aucune condition activée. Paramétrez la simulation ci-dessous.');
+    result.conditions.forEach(c => {
+      const line = document.createElement('div'); line.className = 'condition';
+      const mark = document.createElement('span'); mark.className = 'mark ' + (c.ok ? 'state-good':'state-bad'); mark.textContent = c.ok ? '✓' : '×';
+      const label = document.createElement('span'); label.textContent = c.label;
+      line.append(mark,label); els.completionRules.appendChild(line);
+    });
+    els.scoStates.replaceChildren();
+    for (const item of packageState.manifest.launchableItems) {
+      const row = result.attempts.find(a => a.number === attemptNumber)?.rows.find(r => r.id === item.identifier);
+      if (!row) continue;
+      const div = document.createElement('div'); div.className = 'sco-state';
+      const name = document.createElement('strong'); name.textContent = item.title;
+      const description = document.createElement('span'); description.className = 'sco-meta';
+      description.textContent = `${row.status} · score ${row.score === null ? 'non transmis' : displayNumber(row.score)}`;
+      div.append(name, description); els.scoStates.appendChild(div);
+    }
+    els.diagnosticList.replaceChildren();
+    const diagnostics = result.diagnostics.slice();
+    if (runtime?.initialized && !runtime.terminated && !saved && !runtime.writtenKeys.size) {
+      diagnostics.push({ kind:'info', text:'Aucune donnée de progression écrite par le SCO actif pour le moment.' });
+    }
+    if (logs.some(e => e.errorCode)) diagnostics.push({ kind:'warning', text:'Des appels API SCORM ont renvoyé une erreur : consultez le journal.' });
+    if (packageState.manifest.metadata.passingScore && packageState.manifest.standard === 'SCORM 1.2') {
+      diagnostics.push({ kind:'info', text:`Le manifeste comporte un seuil de maîtrise (${packageState.manifest.metadata.passingScore}). Une conversion automatique score/statut liée à ce seuil n’est pas reproduite ici.` });
+    }
+    if (packageState.manifest.manifestPath.includes('/')) {
+      diagnostics.push({ kind:'warning', text:'Le manifeste est dans un sous-dossier : Moodle peut refuser le ZIP, même si ce lecteur parvient à le lancer.' });
+    }
+    if (!diagnostics.length) addParagraph(els.diagnosticList, 'Aucune anomalie détectée par les vérifications disponibles.');
+    diagnostics.forEach(d => {
+      const node = document.createElement('div'); node.className = 'diagnostic ' + d.kind;
+      node.textContent = d.text; els.diagnosticList.appendChild(node);
+    });
+  }
+  function addParagraph(container, text) {
+    const p = document.createElement('p'); p.className = 'empty-hint'; p.textContent = text; container.appendChild(p);
+  }
   function renderData() {
     if (!els.dataBody) return;
-    const filter = (els.dataFilter?.value || '').trim().toLowerCase();
-    const entries = Object.entries(latestData || {})
-      .filter(([key, value]) => !filter || key.toLowerCase().includes(filter) || String(value).toLowerCase().includes(filter))
-      .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }));
-
-    els.dataBody.innerHTML = '';
+    const filter = (els.dataFilter.value || '').trim().toLowerCase();
+    const saved = storageState.savedData || {};
+    const entries = Array.from(new Set([...Object.keys(latestData || {}), ...Object.keys(saved)]))
+      .filter(key => !filter || key.toLowerCase().includes(filter) || String(latestData[key] ?? '').toLowerCase().includes(filter))
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    els.dataBody.replaceChildren();
+    els.saveIndicator.textContent = !runtime ? 'Aucune session' : storageState.dirtyKeys.length ?
+      `${storageState.dirtyKeys.length} écriture(s) en attente` : storageState.savedData ? 'Données validées' : 'Aucun Commit/Finish';
+    els.saveIndicator.classList.toggle('pending', Boolean(storageState.dirtyKeys.length));
+    els.forceCommitBtn.disabled = !runtime || !runtime.initialized || runtime.terminated;
     if (!entries.length) {
-      const tr = document.createElement('tr');
-      const td = document.createElement('td'); td.colSpan = 2; td.className = 'empty-cell'; td.textContent = 'Aucune donnée correspondant au filtre.';
+      const tr = document.createElement('tr'); const td = document.createElement('td');
+      td.colSpan = 3; td.className = 'empty-cell'; td.textContent = 'Aucune donnée correspondant au filtre.';
       tr.appendChild(td); els.dataBody.appendChild(tr); return;
     }
-
-    for (const [key, value] of entries) {
+    for (const key of entries) {
       const tr = document.createElement('tr');
+      if (storageState.dirtyKeys.includes(key)) tr.className = 'changed';
       const keyCell = document.createElement('td'); keyCell.textContent = key;
       const valueCell = document.createElement('td');
-      const input = document.createElement('input'); input.className = 'value-input'; input.value = value; input.title = 'Modifier la valeur simulée';
+      const input = document.createElement('input'); input.className = 'value-input';
+      input.value = latestData[key] ?? ''; input.title = 'Injection manuelle de test (hors API SCORM)';
+      input.disabled = !runtime;
       input.addEventListener('change', () => runtime?.forceSet(key, input.value));
-      valueCell.appendChild(input); tr.append(keyCell, valueCell); els.dataBody.appendChild(tr);
+      valueCell.appendChild(input);
+      const savedCell = document.createElement('td');
+      savedCell.textContent = Object.prototype.hasOwnProperty.call(saved, key) ? saved[key] : 'Non enregistré';
+      if (!Object.prototype.hasOwnProperty.call(saved,key)) savedCell.className = 'saved-missing';
+      tr.append(keyCell, valueCell, savedCell); els.dataBody.appendChild(tr);
     }
   }
-
+  function describeLog(entry) {
+    const method = entry.method;
+    const key = String(entry.args[0] || '');
+    const val = String(entry.args[1] ?? '');
+    if (entry.errorCode) return `Appel refusé par l’API (code ${entry.errorCode}).`;
+    if (/^(LMSSetValue|SetValue|SIM:modifier)$/.test(method)) {
+      if (/lesson_status|completion_status|success_status/.test(key)) return `Statut déclaré : ${val}.`;
+      if (/score\.(raw|scaled)/.test(key)) return `Score transmis : ${val}.`;
+      if (method === 'SIM:modifier') return 'Valeur modifiée manuellement pour tester le résultat.';
+      return `Écriture de ${key}.`;
+    }
+    if (/^(LMSCommit|Commit)$/.test(method)) return entry.result === 'true' ? 'Validation demandée et enregistrée localement.' : 'Validation non effectuée.';
+    if (/^(LMSFinish|Terminate)$/.test(method)) return 'Fin de session : tentative de validation des données.';
+    if (/^(LMSInitialize|Initialize)$/.test(method)) return 'Ouverture de la communication avec le LMS simulé.';
+    if (/^(LMSGetValue|GetValue)$/.test(method)) return 'Lecture de la variable CMI.';
+    return '';
+  }
+  function addSystemLog(message) {
+    logs.push({time:new Date(), method:'SIM:événement', args:[message], result:'', errorCode:0,
+      scoTitle:currentItem?.title || '', attempt:attemptNumber});
+    renderLogs();
+  }
   function renderLogs() {
     if (!els.logList) return;
-    els.logList.innerHTML = '';
-    if (!logs.length) {
-      const p = document.createElement('p'); p.className = 'empty-hint'; p.textContent = 'Les appels SCORM apparaîtront ici.'; els.logList.appendChild(p); return;
-    }
-
+    const filter = els.logFilter.value;
+    const shown = logs.filter(e => filter === 'all' ||
+      (filter === 'errors' && Boolean(e.errorCode)) ||
+      (filter === 'writes' && /^(LMSSetValue|SetValue|SIM:modifier)$/.test(e.method)) ||
+      (filter === 'lifecycle' && /^(LMSInitialize|Initialize|LMSCommit|Commit|LMSFinish|Terminate)$/.test(e.method)));
+    els.logCount.textContent = `${shown.length} / ${logs.length}` + (shown.length > 250 ? ' · 250 récents' : '');
+    els.downloadLogBtn.disabled = logs.length === 0;
+    els.logList.replaceChildren();
+    if (!shown.length) { addParagraph(els.logList, 'Aucun événement correspondant au filtre.'); return; }
     const fragment = document.createDocumentFragment();
-    logs.slice().reverse().forEach(entry => {
+    // Keep the complete log for export, but cap DOM nodes for responsive large packages.
+    shown.slice(-250).reverse().forEach(entry => {
       const div = document.createElement('div'); div.className = 'log-entry' + (entry.errorCode ? ' log-error' : '');
       const head = document.createElement('div'); head.className = 'log-head';
-      const time = document.createElement('span'); time.className = 'log-time'; time.textContent = entry.time.toLocaleTimeString('fr-FR', { hour12: false });
+      const time = document.createElement('span'); time.className = 'log-time';
+      time.textContent = entry.time.toLocaleTimeString('fr-FR', { hour12: false });
       const method = document.createElement('span'); method.className = 'log-method'; method.textContent = entry.method;
       head.append(time, method); div.appendChild(head);
+      const context = document.createElement('div'); context.className = 'log-context';
+      context.textContent = `Tentative ${entry.attempt || 1} · ${entry.scoTitle || ''}`; div.appendChild(context);
       if (entry.args.length) {
-        const args = document.createElement('div'); args.className = 'log-args'; args.textContent = entry.args.map(v => JSON.stringify(v)).join(', '); div.appendChild(args);
+        const args = document.createElement('div'); args.className = 'log-args';
+        args.textContent = entry.args.map(v => JSON.stringify(v)).join(', '); div.appendChild(args);
       }
       const result = document.createElement('div'); result.className = 'log-result';
       result.textContent = `→ ${JSON.stringify(entry.result)}${entry.errorCode ? ` · erreur ${entry.errorCode}` : ''}`;
-      div.appendChild(result); fragment.appendChild(div);
+      div.appendChild(result);
+      const description = describeLog(entry);
+      if (description) { const desc = document.createElement('p'); desc.className = 'log-description'; desc.textContent = description; div.appendChild(desc); }
+      fragment.appendChild(div);
     });
     els.logList.appendChild(fragment);
+  }
+  function exportLogs() {
+    const payload = {
+      exportedAt: new Date().toISOString(), application:'Lecteur SCORM et simulateur Moodle 4.5',
+      package: packageState ? { title:packageState.manifest.title, hash:packageState.hash, standard:packageState.manifest.standard } : null,
+      learner: learnerKey(), settings:getSimulationOptions(), attempts:packageState ? collectAttempts('saved') : [],
+      projection: getMoodleResult('live'), savedPrediction: getMoodleResult('saved'),
+      events: logs.map(({time, ...rest}) => ({time:time.toISOString(), ...rest}))
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type:'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `journal-scorm-${new Date().toISOString().replace(/[:.]/g,'-')}.json`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
   }
 
   function setBadge(text, type) {

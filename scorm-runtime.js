@@ -98,6 +98,10 @@
       this.storageKey = `scorm-reader:v1:${this.packageKey}:${this.standard}:${this.learnerId}`;
       this.persisted = this.loadPersisted();
       this.data = this.buildInitialData();
+      this.savedData = this.persisted?.data ? clone(this.persisted.data) : null;
+      this.writtenKeys = new Set(this.persisted?.writtenKeys || []);
+      this.dirtyKeys = new Set();
+      this.lastPersistOk = null;
       this.api = this.buildApi();
       this.emitChange();
     }
@@ -159,13 +163,33 @@
       return result;
     }
 
-    emitChange() { this.onChange(clone(this.data)); }
+    emitChange() { this.onChange(clone(this.data), this.getStorageState()); }
+
+    getStorageState() {
+      return { savedData: this.savedData ? clone(this.savedData) : null,
+        dirtyKeys: Array.from(this.dirtyKeys), writtenKeys: Array.from(this.writtenKeys),
+        lastPersistOk: this.lastPersistOk };
+    }
+
+    markWritten(element) {
+      this.writtenKeys.add(element);
+      this.dirtyKeys.add(element);
+    }
 
     persist() {
       try {
-        localStorage.setItem(this.storageKey, JSON.stringify({ savedAt: new Date().toISOString(), data: this.data }));
+        localStorage.setItem(this.storageKey, JSON.stringify({ savedAt: new Date().toISOString(),
+          data: this.data, writtenKeys: Array.from(this.writtenKeys) }));
+        this.savedData = clone(this.data);
+        this.dirtyKeys.clear();
+        this.lastPersistOk = true;
+        this.emitChange();
         return true;
-      } catch { return false; }
+      } catch {
+        this.lastPersistOk = false;
+        this.emitChange();
+        return false;
+      }
     }
 
     reset() {
@@ -175,14 +199,20 @@
       this.terminated = false;
       this.lastError = 0;
       this.data = this.buildInitialData();
+      this.savedData = null;
+      this.writtenKeys.clear();
+      this.dirtyKeys.clear();
+      this.lastPersistOk = null;
       this.emitChange();
     }
 
     forceSet(element, value) {
       this.data[String(element)] = String(value);
       this.updateCollectionCount(String(element));
-      this.persist();
+      this.markWritten(String(element));
+      this.setError(0);
       this.emitChange();
+      this.log('SIM:modifier', [String(element), String(value)], 'true');
     }
 
     buildApi() {
@@ -220,8 +250,9 @@
     finish12(arg) {
       if (!this.initialized || this.terminated) { this.setError(301); return this.log('LMSFinish', arguments, 'false'); }
       if (String(arg || '') !== '') { this.setError(201); return this.log('LMSFinish', arguments, 'false'); }
-      this.accumulateTime12(); this.persist(); this.terminated = true; this.setError(0); this.emitChange();
-      return this.log('LMSFinish', arguments, 'true');
+      this.accumulateTime12();
+      const ok = this.persist(); this.terminated = true; this.setError(ok ? 0 : 101); this.emitChange();
+      return this.log('LMSFinish', arguments, ok ? 'true' : 'false');
     }
 
     getValue12(element) {
@@ -250,7 +281,7 @@
       if (!this.isSupportedDynamic12(element) && !Object.prototype.hasOwnProperty.call(this.data, element)) {
         this.setError(401); return this.log('LMSSetValue', arguments, 'false');
       }
-      this.data[element] = value; this.updateCollectionCount(element); this.setError(0); this.emitChange();
+      this.data[element] = value; this.updateCollectionCount(element); this.markWritten(element); this.setError(0); this.emitChange();
       return this.log('LMSSetValue', arguments, 'true');
     }
 
@@ -272,8 +303,9 @@
       if (String(arg || '') !== '') { this.setError(201); return this.log('Terminate', arguments, 'false'); }
       if (!this.initialized) { this.setError(112); return this.log('Terminate', arguments, 'false'); }
       if (this.terminated) { this.setError(113); return this.log('Terminate', arguments, 'false'); }
-      this.accumulateTime2004(); this.persist(); this.terminated = true; this.setError(0); this.emitChange();
-      const result = this.log('Terminate', arguments, 'true');
+      this.accumulateTime2004();
+      const ok = this.persist(); this.terminated = true; this.setError(ok ? 0 : 391); this.emitChange();
+      const result = this.log('Terminate', arguments, ok ? 'true' : 'false');
       const request = this.data['adl.nav.request'];
       if (request && request !== '_none') setTimeout(() => this.onNavigate(request), 0);
       return result;
@@ -308,7 +340,7 @@
       if (!this.isSupportedDynamic2004(element) && !Object.prototype.hasOwnProperty.call(this.data, element)) {
         this.setError(401); return this.log('SetValue', arguments, 'false');
       }
-      this.data[element] = value; this.updateCollectionCount(element); this.setError(0); this.emitChange();
+      this.data[element] = value; this.updateCollectionCount(element); this.markWritten(element); this.setError(0); this.emitChange();
       return this.log('SetValue', arguments, 'true');
     }
 
