@@ -1,4 +1,4 @@
-# SCORM Studio : lecteur SCORM et simulateur Moodle 4.5
+# SCORM Studio v3 : suivi et reprise SCORM, simulation Moodle 4.5
 
 Application web **100 % statique**, conçue pour GitHub Pages. Aucun serveur applicatif, PHP, Node.js ou appel API Moodle n'est nécessaire pour utiliser le lecteur. Le SCORM ZIP est extrait **dans le navigateur**, puis servi par un Service Worker sur la même origine. Les tentatives et réglages sont conservés dans les espaces de stockage locaux de ce navigateur.
 
@@ -8,12 +8,14 @@ Application web **100 % statique**, conçue pour GitHub Pages. Aucun serveur app
 - **Interface révisée** : espace de travail à trois panneaux, icônes SVG locales, contrôles à contraste élevé et présentation adaptée aux petits écrans.
 - **Menus déroulants** : couleurs explicites pour les options normales et sélectionnées, compatibles avec les palettes sombres et claires.
 - **Aides contextuelles** : boutons `?` à côté des métriques, réglages Moodle, tentatives et journaux ; survol, clic ou focus clavier ; fermeture avec Échap ou clic extérieur.
-- **Transitions SCORM** : lors du rechargement, de la navigation entre SCO, de la réinitialisation, du changement de tentative ou du chargement d’un autre package, l’API de l’ancien SCO reste disponible pendant `pagehide`/`unload` de l’iframe. La nouvelle session est créée **après** le déchargement. Une réinitialisation efface les données locales **après** les derniers appels de fermeture du SCO. En cas de délai de déchargement dépassé, le journal avertit que cette fermeture ne peut pas être garantie.
+- **Transitions SCORM** : lors du rechargement, de la navigation entre SCO, de la fermeture, de la réinitialisation, du changement de tentative ou du chargement d’un autre package, l’API de l’ancien SCO reste disponible pendant `pagehide`/`unload` de l’iframe. La nouvelle session est créée **après** le déchargement. En cas de délai de déchargement dépassé, le journal avertit que cette fermeture ne peut pas être garantie.
+- **Fermeture puis reprise** : `Fermer` retire le SCO de la page après réception de ses derniers appels API ; `Reprendre` le recharge dans **la même tentative**, avec le dernier état validé. `cmi.core.entry` (SCORM 1.2) ou `cmi.entry` (SCORM 2004) vaut `resume` lorsque la dernière sortie enregistrée était `suspend` ; sinon `ab-initio`.
+- **Réinitialisation complète** : après confirmation, `Réinitialiser` ferme le contenu, efface **toutes les données CMI des SCO et toutes les tentatives** pour le package et l’apprenant actifs, remet le compteur à 1, vide le journal et relance le **premier SCO**. Les autres apprenants et packages restent inchangés ; les réglages Moodle et le thème sont conservés.
 - **Erreurs 301** : leur description distingue maintenant la lecture avant `LMSInitialize` de l’accès après terminaison ; consultez le journal pour déterminer l’origine d’un appel refusé.
 
 ## Fonctionnalités principales
 
-- **Moodle** (simulation du comportement de Moodle 4.5) : visualisation de l'état du SCO, du score brut, de la note calculée, des règles d'achèvement et des causes probables d'un blocage.
+- **Moodle** (simulation du comportement de Moodle 4.5) : visualisation de l'état du SCO, du score brut, de la note calculée, des règles d'achèvement et des causes probables d'un blocage. Le panneau **Persistance et reprise** précise le statut sauvegardé, la position, la taille des données `suspend_data`, la prochaine valeur `entry` et les lectures observées après réouverture.
 - **Données** : comparaison des valeurs CMI *en mémoire* et du dernier snapshot *validé localement* (`Commit` ou `Finish` / `Terminate`). Les cellules modifiables permettent d'injecter des données de test, identifiées comme telles dans le journal.
 - **Journal** : suivi chronologique des appels API, du SCO, de la tentative, des arguments, des résultats, des codes d'erreur et d'une courte interprétation. Filtres par appels, écritures, cycle de vie ou erreurs. Export JSON avec snapshots et paramètres (jusqu'aux 5 000 derniers événements, conservés pendant la visite).
 - **Tentatives** : création et consultation de plusieurs tentatives locales (maximum 100), notes des tentatives (meilleure, première, dernière achevée, moyenne) et notation des SCO (objets d'apprentissage, plus haute, moyenne, somme).
@@ -36,7 +38,9 @@ Les chemins utilisés sont relatifs au site, y compris dans une URL de projet `h
 2. Dans **Moodle**, choisissez *Données en cours (projection)* pour voir l'évolution immédiate, y compris les modifications non validées. Choisissez *Données validées (Commit/Finish)* pour ne retenir que les valeurs persistées par l'émulateur.
 3. Ouvrez **Journal** pour suivre les appels `LMSInitialize`, `LMSSetValue`, `LMSCommit`, `LMSFinish` (SCORM 1.2) ou leur équivalent SCORM 2004.
 4. Reproduisez les réglages du véritable package Moodle dans **Paramètres Moodle simulés**. Ils sont enregistrés dans ce navigateur, sans lien avec un cours ou une activité Moodle existante.
-5. Vous pouvez créer des tentatives, comparer les états entre SCO et exporter le rapport JSON.
+5. Pour tester la reprise, avancez dans le contenu, cliquez sur **Fermer**, inspectez les données validées dans **Moodle**, puis cliquez sur **Reprendre**. Vérifiez dans le journal les valeurs relues et visuellement la position retrouvée.
+6. Pour effacer le suivi, cliquez sur **Réinitialiser**, confirmez : tous les SCO et tentatives de l'apprenant actif repartent de zéro. Le package reste chargé, et l'outil ouvre sa première activité.
+7. Vous pouvez créer des tentatives, comparer les états entre SCO et exporter le rapport JSON.
 
 Attention : le simulateur affiche des **estimations**, et non les données effectivement reçues par un serveur Moodle. Le snapshot « validé » simule une politique d'enregistrement explicite lors de `Commit` / `Finish`. La stratégie exacte de sauvegarde de Moodle, les éventuels réglages d'administration, le déclenchement des tâches et l'état du carnet de notes peuvent différer. L'achèvement lié à la consultation est approximé par le lancement du package ici. Avant un changement de SCO ou un rechargement, le lecteur laisse l’ancien contenu exécuter ses handlers de sortie, qui peuvent transmettre de nouvelles valeurs et lancer un `Commit` ou un `Finish`. Les valeurs encore non validées après le déchargement ne sont pas reprises dans la session suivante.
 
@@ -54,6 +58,8 @@ Le package reste sur l'appareil de l'utilisateur, stocké dans le Cache Storage 
 
 **N'ouvrez que des packages ZIP de confiance.** Leur JavaScript s'exécute sur l'origine du lecteur et peut accéder aux API du navigateur auxquelles cette origine a droit, y compris son stockage local. GitHub Pages n'isole pas les contenus SCORM non fiables. Le cache du navigateur ne constitue pas un stockage sécurisé et peut être vidé.
 
+L’action « Réinitialiser » efface le suivi stocké **par le lecteur**, et non tous les éléments de stockage accessibles au site. Certains packages peuvent sauvegarder leurs propres données hors de l’API SCORM (autres clés `localStorage`, cookies, IndexedDB). Ces données autonomes, le cache des fichiers du ZIP et les préférences du lecteur ne sont pas supprimés ; pour purger entièrement l’origine, utilisez les réglages « données du site » du navigateur, après avoir exporté ce qui doit être conservé. Cette purge totale affecterait tous les apprenants et packages de cette origine.
+
 Les contenus faisant des requêtes externes peuvent néanmoins contacter leurs propres domaines. L'application n'effectue aucun envoi automatique du ZIP vers un serveur.
 
 ## Limitations du lecteur
@@ -62,7 +68,9 @@ Les contenus faisant des requêtes externes peuvent néanmoins contacter leurs p
 - Modèle CMI courant de SCORM 1.2 et 2004, mais validation stricte non exhaustive ; navigation/sequencing SCORM 2004 non complète.
 - Les SCO chargés depuis un autre domaine ne peuvent généralement pas lire l'API SCORM via la politique de même origine.
 - Contenus historiques nécessitant Flash non pris en charge.
-- Journal conservé uniquement en mémoire pendant la visite (exporter avant fermeture de l'onglet).
+- Journal conservé uniquement en mémoire pendant la visite, et effacé lors d’une réinitialisation complète (exporter avant si besoin).
+- Un rechargement de la page nécessite de réimporter le même ZIP ; le suivi validé dans `localStorage` est alors retrouvé (dans le même navigateur, tant qu'il n'a pas été supprimé).
+- Les lectures de données par le package sont observables dans le journal ; elles ne garantissent pas à elles seules une restauration visuelle correcte, qui doit être constatée manuellement.
 - Le lecteur n'est pas connecté à Moodle, ne modifie pas ses notes et ne reproduit pas les extensions locales de Moodle.
 
 ## Tests

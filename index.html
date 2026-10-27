@@ -44,7 +44,7 @@
         <button id="themeToggle" class="icon-button theme-toggle" type="button" aria-label="Activer le mode clair" title="Changer de thème"><svg class="ui-icon" aria-hidden="true"><use href="#i-sun"></use></svg></button>
         <label class="button primary" for="zipInput"><svg class="ui-icon" aria-hidden="true"><use href="#i-upload"></use></svg> Importer un SCORM</label>
         <input id="zipInput" type="file" accept=".zip,application/zip" hidden>
-        <button id="resetSessionBtn" class="button subtle" type="button" disabled><svg class="ui-icon" aria-hidden="true"><use href="#i-rotate"></use></svg> Réinitialiser</button>
+        <button id="resetSessionBtn" class="button subtle" type="button" disabled title="Effacer toutes les tentatives et tous les SCO de cet apprenant pour ce package"><svg class="ui-icon" aria-hidden="true"><use href="#i-trash"></use></svg> Réinitialiser</button>
       </div>
     </header>
 
@@ -84,6 +84,8 @@
             <button id="prevBtn" class="icon-button" type="button" title="SCO précédent" aria-label="SCO précédent" disabled><svg class="ui-icon" aria-hidden="true"><use href="#i-left"></use></svg></button>
             <button id="nextBtn" class="icon-button" type="button" title="SCO suivant" aria-label="SCO suivant" disabled><svg class="ui-icon" aria-hidden="true"><use href="#i-right"></use></svg></button>
             <button id="reloadBtn" class="button compact" type="button" disabled><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg> Recharger</button>
+            <button id="closeSessionBtn" class="button compact" type="button" disabled title="Fermer le SCO sans effacer l'avancement"><svg class="ui-icon" aria-hidden="true"><use href="#i-external"></use></svg> Fermer</button>
+            <button id="resumeSessionBtn" class="button compact primary" type="button" disabled hidden title="Reprendre la même tentative et récupérer les données enregistrées"><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg> Reprendre</button>
           </div>
           <div class="current-item">
             <span class="eyebrow">Élément actif</span>
@@ -101,6 +103,12 @@
             <p class="technical-note">Traitement local dans votre navigateur. Aucun transfert du ZIP.</p>
           </div>
           <iframe id="scoFrame" title="Contenu SCORM" hidden></iframe>
+          <div id="pausedState" class="paused-state" hidden role="status">
+            <div class="paused-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-database"></use></svg></div>
+            <h2>Session fermée</h2>
+            <p>Les données validées restent conservées dans le navigateur. Reprenez la même tentative pour tester leur restauration.</p>
+            <button id="resumeSessionMainBtn" class="button primary" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg> Reprendre le SCO</button>
+          </div>
         </div>
       </section>
 
@@ -146,6 +154,17 @@
               <div class="sim-metric"><div class="metric-head"><svg class="ui-icon" aria-hidden="true"><use href="#i-check"></use></svg><span>Achèvement</span><button class="help-trigger" data-help="completion" type="button" aria-label="Aide : achèvement"><svg class="ui-icon" aria-hidden="true"><use href="#i-help"></use></svg></button></div><strong id="moodleCompletion">Non configuré</strong></div>
             </div>
             <p id="moodleScopeNote" class="sim-note"></p>
+            <section class="persistence-panel" aria-label="Persistance et reprise SCORM">
+              <div class="persistence-heading"><span><svg class="ui-icon" aria-hidden="true"><use href="#i-database"></use></svg> Persistance et reprise</span><button class="help-trigger" data-help="persistence" type="button" aria-label="Aide : persistance et reprise"><svg class="ui-icon" aria-hidden="true"><use href="#i-help"></use></svg></button></div>
+              <div class="persistence-result" id="persistenceState" aria-live="polite">Aucune donnée conservée.</div>
+              <div class="persistence-facts">
+                <div><span>Statut conservé</span><strong id="persistedStatus">Non enregistré</strong></div>
+                <div><span>Reprise demandée</span><strong id="persistedEntry">Non déterminée</strong></div>
+                <div><span>Position</span><strong id="persistedLocation">Absente</strong></div>
+                <div><span>Données de suspension</span><strong id="persistedSuspend">Absentes</strong></div>
+              </div>
+              <p id="resumeDiagnostic" class="sim-note">Fermez le SCO puis reprenez-le pour observer les lectures effectuées par le package.</p>
+            </section>
             <div class="sim-subtitle">Conditions d'achèvement <span id="completionCount" class="muted"></span><button class="help-trigger" data-help="completionRules" type="button" aria-label="Aide : conditions"><svg class="ui-icon" aria-hidden="true"><use href="#i-help"></use></svg></button></div>
             <div id="completionRules" class="sim-conditions"><p class="empty-hint">Aucune condition paramétrée.</p></div>
             <div class="sim-subtitle">État des SCO</div>

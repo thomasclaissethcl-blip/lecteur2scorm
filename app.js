@@ -11,6 +11,8 @@
   let transitionQueue = Promise.resolve();
   let transitionSequence = 0;
   let scoClosing = false;
+  let sessionPaused = false;
+  let resumeAudit = null;
   let transitionBusy = false;
   let packageLoading = false;
   let currentItem = null;
@@ -20,6 +22,7 @@
   let toastTimer = null;
   let attemptNumber = 1;
   let attemptCount = 1;
+  let activeLearnerId = 'learner-001';
   let learnerViewed = false;
   let storageState = { savedData: null, dirtyKeys: [], writtenKeys: [], lastPersistOk: null };
   const simSettingsKey = 'scorm-reader:moodle45:settings:v1';
@@ -47,7 +50,8 @@
     passGrade: ['Seuil Moodle', 'Note minimale sur le barème maximal de l’activité. Exemple : 12 pour une activité notée sur 20.'],
     requireView: ['Consultation', 'Dans ce lecteur, le lancement du SCO compte comme une consultation simulée. Moodle dispose de ses propres événements de consultation.'],
     data: ['Valeurs CMI', 'La colonne En cours montre la mémoire SCORM, Enregistré montre le dernier snapshot validé. Modifier manuellement une valeur produit une injection de test journalisée.'],
-    log: ['Journal API', 'Les événements s’affichent du plus récent au plus ancien. Les erreurs 301 indiquent généralement un accès avant Initialisation ou après fermeture de session. Exportez le JSON pour un diagnostic complet.']
+    log: ['Journal API', 'Les événements s’affichent du plus récent au plus ancien. Les erreurs 301 indiquent généralement un accès avant Initialisation ou après fermeture de session. Exportez le JSON pour un diagnostic complet.'],
+    persistence: ['Persistance et reprise', 'Le simulateur distingue les valeurs enregistrées, les valeurs renvoyées par l’API à la réouverture et la restauration visible du contenu. Ce dernier point nécessite une vérification manuelle : les appels API ne prouvent pas que le bon écran a été restauré.']
   };
   const simOptionIds = ['gradeMethod','attemptMethod','maxGrade','statusRequired','allScos','minScoreEnabled','minScore','requireGrade','passGradeEnabled','passGrade','requireView'];
 
@@ -69,10 +73,11 @@
   async function init() {
     ['statusBadge','zipInput','resetSessionBtn','packageTitle','packageStandard','packageId','fileCount','learnerId','learnerName',
       'applyLearnerBtn','itemCount','courseOutline','prevBtn','nextBtn','reloadBtn','currentItemTitle','openWindowBtn','dropZone',
-      'emptyState','scoFrame','themeToggle','helpPopover','runtimeLabel','clearLogBtn','downloadLogBtn','logFilter','logCount',
+      'emptyState','scoFrame','pausedState','closeSessionBtn','resumeSessionBtn','resumeSessionMainBtn','themeToggle','helpPopover','runtimeLabel','clearLogBtn','downloadLogBtn','logFilter','logCount',
       'dataFilter','dataBody','saveIndicator','forceCommitBtn','logList','manifestView','toast',
       'attemptSelect','newAttemptBtn','moodleScope','moodleScopeNote','moodleStatus','moodleScore',
       'moodleGrade','moodleCompletion','completionCount','completionRules','scoStates','diagnosticList',
+      'persistenceState','persistedStatus','persistedEntry','persistedLocation','persistedSuspend','resumeDiagnostic',
       ...simOptionIds].forEach(id => els[id] = document.getElementById(id));
 
     restoreSimulationOptions();
@@ -112,6 +117,9 @@
     els.prevBtn.addEventListener('click', () => navigateBy(-1));
     els.nextBtn.addEventListener('click', () => navigateBy(1));
     els.reloadBtn.addEventListener('click', () => currentItem && launchItem(currentItem, true));
+    els.closeSessionBtn.addEventListener('click', closeActiveSession);
+    els.resumeSessionBtn.addEventListener('click', resumeActiveSession);
+    els.resumeSessionMainBtn.addEventListener('click', resumeActiveSession);
     els.openWindowBtn.addEventListener('click', () => {
       if (!currentItem) return;
       const url = launchUrl(currentItem.href);
@@ -126,11 +134,7 @@
       else showToast('Identité de l’apprenant prête pour le prochain SCO.');
     });
 
-    els.resetSessionBtn.addEventListener('click', () => {
-      if (!runtime || !currentItem) return;
-      addSystemLog('Réinitialisation demandée (fermeture du SCO avant effacement)');
-      launchItem(currentItem, true, true).then(() => showToast('Session du SCO réinitialisée.'));
-    });
+    els.resetSessionBtn.addEventListener('click', resetAllProgress);
 
     els.themeToggle.addEventListener('click', () => setTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light'));
     els.clearLogBtn.addEventListener('click', () => { logs = []; renderLogs(); });
@@ -264,6 +268,9 @@
       };
 
       runtime = null;
+      sessionPaused = false;
+      resumeAudit = null;
+      els.pausedState.hidden = true;
       currentItem = null;
       currentIndex = -1;
       logs = [];
@@ -359,9 +366,12 @@
   function setTransitionBusy(value) {
     transitionBusy = value;
     const ready = Boolean(packageState && currentItem) && !value;
-    els.reloadBtn.disabled = !ready;
+    els.reloadBtn.disabled = !ready || sessionPaused;
     els.resetSessionBtn.disabled = !ready;
-    els.openWindowBtn.disabled = !ready;
+    els.openWindowBtn.disabled = !ready && !sessionPaused;
+    els.closeSessionBtn.disabled = !ready || sessionPaused;
+    els.resumeSessionBtn.disabled = !ready || !sessionPaused;
+    els.resumeSessionBtn.hidden = !sessionPaused;
     els.newAttemptBtn.disabled = value || !packageState || attemptCount >= 100;
     if (value) {
       els.prevBtn.disabled = true;
@@ -400,7 +410,117 @@
     });
   }
 
-  function launchItem(item, forceReload = false, resetAfterUnload = false) {
+  // A closure is a pause of the selected attempt, not a reset.
+  // Keep the outgoing API live until the iframe has fired its unload callbacks.
+  function closeActiveSession() {
+    if (!packageState || !currentItem || sessionPaused || transitionBusy || packageLoading) return Promise.resolve();
+    const packageAtRequest = packageState;
+    const sequence = ++transitionSequence;
+    const closing = transitionQueue.catch(() => {}).then(async () => {
+      if (sequence !== transitionSequence || packageState !== packageAtRequest) return;
+      setTransitionBusy(true);
+      scoClosing = true;
+      try {
+        const outgoing = runtime;
+        addSystemLog('Fermeture simulée : API maintenue durant le déchargement');
+        await unloadScoFrame();
+        if (sequence !== transitionSequence || packageState !== packageAtRequest) return;
+        if (outgoing?.dirtyKeys.size) {
+          addSystemLog(`${outgoing.dirtyKeys.size} écriture(s) non validée(s) : ces valeurs ne seront pas restaurées`);
+        }
+        uninstallGlobalApi();
+        runtime = null;
+        sessionPaused = true;
+        const saved = getStoredSco(currentItem.identifier, attemptNumber);
+        latestData = saved?.data ? { ...saved.data } : {};
+        storageState = { savedData: saved?.data ? { ...saved.data } : null,
+          dirtyKeys: [], writtenKeys: saved?.writtenKeys || [], lastPersistOk: outgoing?.lastPersistOk ?? null };
+        els.pausedState.hidden = false;
+        els.emptyState.hidden = true;
+        els.currentItemTitle.textContent = currentItem.title;
+        renderData(); updateRuntimeLabel(); renderMoodle();
+        addSystemLog(saved ? 'Session fermée : état sauvegardé disponible pour la reprise' : 'Session fermée sans état sauvegardé');
+      } finally {
+        scoClosing = false;
+        setTransitionBusy(false);
+      }
+    });
+    transitionQueue = closing;
+    return closing.catch(error => {
+      console.error(error);
+      showToast('Impossible de fermer le SCO.', true);
+    });
+  }
+
+  function resumeActiveSession() {
+    if (!sessionPaused || !currentItem || transitionBusy) return Promise.resolve();
+    addSystemLog('Réouverture de la même tentative avec les données validées');
+    return launchItem(currentItem, true);
+  }
+
+  function wipeLearnerProgress(packageHash, standard, learnerId) {
+    const prefix = `scorm-reader:v1:${packageHash}:`;
+    const suffix = `:${standard}:${learnerId}`;
+    const keys = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key?.startsWith(prefix) && key.endsWith(suffix)) keys.push(key);
+    }
+    // Include the counter even if it was corrupted or stale.
+    keys.push(`scorm-reader:attempts:v1:${packageHash}:${learnerId}`);
+    keys.forEach(key => localStorage.removeItem(key));
+    return keys.length;
+  }
+
+  function resetAllProgress() {
+    if (!packageState || !currentItem || transitionBusy || packageLoading) return Promise.resolve();
+    const learnerId = runtime?.learnerId || activeLearnerId;
+    const packageAtRequest = packageState;
+    const itemToRestart = packageState.manifest.launchableItems[0] || currentItem;
+    const accepted = confirm(`Effacer définitivement toute la progression de « ${learnerId} » pour ce package ?\n\nTous les SCO et toutes les tentatives seront supprimés. La note et l'historique Moodle simulés repartiront de zéro.\n\nLe package chargé et les réglages de l'interface seront conservés.`);
+    if (!accepted) return Promise.resolve();
+    const sequence = ++transitionSequence;
+    const resetting = transitionQueue.catch(() => {}).then(async () => {
+      if (sequence !== transitionSequence || packageState !== packageAtRequest) return false;
+      setTransitionBusy(true);
+      scoClosing = true;
+      try {
+        // Any LMSFinish emitted during unload must happen BEFORE the delete.
+        await unloadScoFrame();
+        if (sequence !== transitionSequence || packageState !== packageAtRequest) return false;
+        uninstallGlobalApi();
+        runtime = null;
+        wipeLearnerProgress(packageAtRequest.hash, packageAtRequest.manifest.standard, learnerId);
+        sessionPaused = false;
+        resumeAudit = null;
+        els.pausedState.hidden = true;
+        latestData = {};
+        storageState = { savedData: null, dirtyKeys: [], writtenKeys: [], lastPersistOk: null };
+        attemptCount = 1;
+        attemptNumber = 1;
+        learnerViewed = false;
+        logs = [];
+        updateAttemptsControl();
+        renderData(); renderLogs(); renderMoodle();
+        return true;
+      } finally {
+        scoClosing = false;
+        setTransitionBusy(false);
+      }
+    });
+    transitionQueue = resetting;
+    return resetting.then(async cleared => {
+      if (!cleared) return;
+      await launchItem(itemToRestart, true);
+      addSystemLog('Toutes les données de progression ont été effacées ; tentative n° 1');
+      showToast('Progression entièrement effacée pour cet apprenant et ce package.');
+    }).catch(error => {
+      console.error(error);
+      showToast('Réinitialisation incomplète : vérifiez les permissions du stockage.', true, 7000);
+    });
+  }
+
+  function launchItem(item, forceReload = false) {
     if (!packageState || !item?.href || packageLoading) return Promise.resolve();
     const packageAtRequest = packageState;
     const selectedAttempt = attemptNumber;
@@ -414,20 +534,23 @@
         if (previous) addSystemLog('Fermeture du SCO sortant : API maintenue jusqu’au déchargement');
         await unloadScoFrame();
         if (sequence !== transitionSequence || packageState !== packageAtRequest) return;
-        if (resetAfterUnload && previous) {
-          try { localStorage.removeItem(previous.storageKey); }
-          catch { showToast('Effacement local impossible. Vérifiez le stockage du navigateur.', true); }
-          addSystemLog('Données du SCO effacées après la fermeture');
-        } else if (previous?.dirtyKeys.size) {
+        if (previous?.dirtyKeys.size) {
           addSystemLog(`${previous.dirtyKeys.size} écriture(s) non validée(s) à la fermeture du SCO`);
           showToast('Certaines données non validées par Commit/Finish risquent d’être perdues.', true, 5500);
         }
         runtime = null;
         uninstallGlobalApi();
+        // Identify a resume only after a deliberate closure of this SCO/attempt.
+        const priorPause = sessionPaused && item.identifier === currentItem?.identifier;
+        const savedBeforeResume = priorPause ? getStoredSco(item.identifier, selectedAttempt) : null;
+        resumeAudit = priorPause ? { expected: savedBeforeResume?.data || null, read: {}, mismatches: [], attempted: 0,
+          entryAtOpen: savedBeforeResume?.data?.[packageState.manifest.standard === 'SCORM 2004' ? 'cmi.exit' : 'cmi.core.exit'] === 'suspend' ? 'resume' : 'ab-initio' } : null;
+        sessionPaused = false;
+        els.pausedState.hidden = true;
         currentItem = item;
         currentIndex = packageState.manifest.launchableItems.findIndex(candidate => candidate.identifier === item.identifier);
         const launchedRuntimeKey = runtimePackageKey(item.identifier, selectedAttempt);
-        const learnerId = els.learnerId.value.trim() || 'learner-001';
+        const learnerId = activeLearnerId;
         const learnerName = els.learnerName.value.trim() || 'Apprenant Test';
         let instance;
         instance = new ScormRuntime({
@@ -440,6 +563,22 @@
             entry.scoTitle = item.title;
             entry.attempt = selectedAttempt;
             logs.push(entry);
+            if (resumeAudit && /^(LMSGetValue|GetValue)$/.test(entry.method) && entry.errorCode === 0) {
+              const key = String(entry.args[0] || '');
+              const expected = resumeAudit.expected;
+              const relevant = ['cmi.suspend_data', 'cmi.core.lesson_location', 'cmi.location',
+                'cmi.core.lesson_status', 'cmi.completion_status', 'cmi.success_status',
+                'cmi.core.entry', 'cmi.entry'];
+              if (relevant.includes(key)) {
+                resumeAudit.attempted++;
+                resumeAudit.read[key] = true;
+                const entryKey = key === 'cmi.core.entry' || key === 'cmi.entry';
+                // Entry is derived from the previous exit and not a saved progress value.
+                if (!entryKey && expected && Object.prototype.hasOwnProperty.call(expected, key) && String(expected[key]) !== entry.result) {
+                  if (!resumeAudit.mismatches.includes(key)) resumeAudit.mismatches.push(key);
+                }
+              }
+            }
             if (logs.length > 5000) logs.shift();
             renderLogs();
             renderMoodle();
@@ -463,6 +602,7 @@
         renderData();
         renderMoodle();
         els.emptyState.hidden = true;
+        els.pausedState.hidden = true;
         els.scoFrame.hidden = false;
         const url = launchUrl(item.href);
         els.scoFrame.src = forceReload ? appendCacheBuster(url) : url;
@@ -538,18 +678,19 @@
   }
 
   function updateRuntimeLabel() {
-    if (!runtime) { els.runtimeLabel.textContent = 'Runtime inactif'; return; }
+    if (!runtime) { els.runtimeLabel.textContent = sessionPaused ? 'SCO fermé · reprise possible' : 'Runtime inactif'; return; }
     const state = runtime.terminated ? 'terminé' : runtime.initialized ? 'initialisé' : 'en attente de Initialize';
     els.runtimeLabel.textContent = `${runtime.standard} · ${state}`;
   }
 
-  function learnerKey() { return (els.learnerId.value || '').trim() || 'learner-001'; }
+  function learnerKey() { return activeLearnerId; }
   function runtimePackageKey(itemId, attempt) {
     // Attempt 1 keeps the old v1 storage key for backward compatibility.
     return `${packageState.hash}:${itemId}${attempt > 1 ? ':attempt=' + attempt : ''}`;
   }
   function attemptsStorageKey() { return `scorm-reader:attempts:v1:${packageState.hash}:${learnerKey()}`; }
   function restoreAttempts() {
+    activeLearnerId = (els.learnerId.value || '').trim() || 'learner-001';
     attemptCount = 1;
     try { attemptCount = Math.max(1, Math.min(100, Number(localStorage.getItem(attemptsStorageKey())) || 1)); } catch {}
     attemptNumber = attemptCount;
@@ -653,10 +794,12 @@
       els.scoStates.replaceChildren();
       els.diagnosticList.replaceChildren();
       els.moodleScopeNote.textContent = 'Chargez un package SCORM pour débuter.';
+      renderPersistence();
       return;
     }
     const scope = els.moodleScope.value;
     const result = getMoodleResult(scope);
+    renderPersistence();
     const active = result.attempts.find(a => a.number === attemptNumber)?.rows.find(r => r.id === currentItem?.identifier);
     const saved = scope === 'saved';
     els.moodleStatus.textContent = active?.status || 'Aucun';
@@ -705,6 +848,51 @@
       node.textContent = d.text; els.diagnosticList.appendChild(node);
     });
   }
+  function renderPersistence() {
+    if (!els.persistenceState) return;
+    const item = currentItem;
+    const saved = packageState && item ? getStoredSco(item.identifier, attemptNumber) : null;
+    const data = saved?.data || {};
+    const is12 = packageState?.manifest.standard !== 'SCORM 2004';
+    const statusKey = is12 ? 'cmi.core.lesson_status' : 'cmi.completion_status';
+    const exitKey = is12 ? 'cmi.core.exit' : 'cmi.exit';
+    const locationKey = is12 ? 'cmi.core.lesson_location' : 'cmi.location';
+    const status = data[statusKey] || '';
+    const exit = data[exitKey] || '';
+    const location = data[locationKey] || '';
+    const suspend = data['cmi.suspend_data'] || '';
+    const hasAnyProgress = Boolean(saved && ((saved.writtenKeys || []).some(key =>
+      /lesson_status|completion_status|success_status|lesson_location|suspend_data|score|progress_measure/.test(key))
+      || status && status !== 'not attempted' && status !== 'unknown' || location || suspend));
+    els.persistedStatus.textContent = saved ? status || 'Non renseigné' : 'Non enregistré';
+    els.persistedLocation.textContent = location ? `${location.slice(0, 48)}${location.length > 48 ? '…' : ''}` : 'Absente';
+    const bytes = new TextEncoder().encode(suspend).length;
+    els.persistedSuspend.textContent = suspend ? `${new Intl.NumberFormat('fr-FR').format(bytes)} octets` : 'Absentes';
+    els.persistedEntry.textContent = resumeAudit ? `${resumeAudit.entryAtOpen} (à la réouverture)` :
+      !saved ? 'Non déterminée' : exit === 'suspend' ? 'resume (suspend)' : 'ab-initio (pas de suspend)';
+    els.persistenceState.classList.toggle('persisted',hasAnyProgress);
+    els.persistenceState.classList.toggle('unsaved',!hasAnyProgress);
+    if (!packageState) els.persistenceState.textContent = 'Aucun package chargé.';
+    else if (sessionPaused) els.persistenceState.textContent = hasAnyProgress ? 'Session fermée. Progression conservée localement.' : 'Session fermée. Aucune progression enregistrée détectée.';
+    else if (hasAnyProgress) els.persistenceState.textContent = 'Données de progression enregistrées.';
+    else els.persistenceState.textContent = 'Aucune progression enregistrée détectée.';
+    if (resumeAudit) {
+      const reads = Object.keys(resumeAudit.read).filter(k => k !== 'cmi.entry' && k !== 'cmi.core.entry');
+      const entryRead = 'cmi.entry' in resumeAudit.read || 'cmi.core.entry' in resumeAudit.read;
+      els.resumeDiagnostic.textContent = resumeAudit.mismatches.length ?
+        `Attention : ${resumeAudit.mismatches.length} valeur(s) restituée(s) diffèrent du dernier enregistrement. Vérifiez le journal.` :
+        resumeAudit.attempted ?
+          `Réouverture observée : ${reads.length} variable(s) de progression lue(s) par le SCO${entryRead ? ', indicateur entry consulté' : ''}. Vérifiez visuellement que le contenu a repris au bon endroit.` :
+          'SCO rouvert : en attente de lecture des données par le package. La restauration visuelle reste à vérifier.';
+    } else if (sessionPaused) {
+      els.resumeDiagnostic.textContent = suspend && exit !== 'suspend' ?
+        'Attention : des données de suspension existent, mais la dernière sortie ne déclare pas « suspend ». La reprise automatique peut ne pas être demandée.' :
+        'Cliquez sur « Reprendre » pour réouvrir cette tentative avec les valeurs enregistrées.';
+    } else {
+      els.resumeDiagnostic.textContent = 'Fermez le SCO puis reprenez-le pour vérifier ce qu’il relit au lancement.';
+    }
+  }
+
   function addParagraph(container, text) {
     const p = document.createElement('p'); p.className = 'empty-hint'; p.textContent = text; container.appendChild(p);
   }
@@ -716,7 +904,7 @@
       .filter(key => !filter || key.toLowerCase().includes(filter) || String(latestData[key] ?? '').toLowerCase().includes(filter))
       .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
     els.dataBody.replaceChildren();
-    els.saveIndicator.textContent = !runtime ? 'Aucune session' : storageState.dirtyKeys.length ?
+    els.saveIndicator.textContent = sessionPaused ? 'Session fermée · données conservées' : !runtime ? 'Aucune session' : storageState.dirtyKeys.length ?
       `${storageState.dirtyKeys.length} écriture(s) en attente` : storageState.savedData ? 'Données validées' : 'Aucun Commit/Finish';
     els.saveIndicator.classList.toggle('pending', Boolean(storageState.dirtyKeys.length));
     els.forceCommitBtn.disabled = transitionBusy || !runtime || !runtime.initialized || runtime.terminated;
@@ -884,7 +1072,10 @@
     });
     document.addEventListener('keydown', event => { if (event.key === 'Escape') hide(); });
     window.addEventListener('resize', hide);
-    document.addEventListener('scroll', hide, true);
+    document.addEventListener('scroll', () => {
+      if (active && sticky) show(active, true);
+      else hide();
+    }, true);
   }
 
   function setBadge(text, type) {

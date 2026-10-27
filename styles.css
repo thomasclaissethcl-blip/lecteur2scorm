@@ -266,3 +266,23 @@ input[type="checkbox"] { appearance: auto; width: 15px; height: 15px; margin: 0;
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; }
 }
+
+/* Persistance et reprise : état synthétique, sans exposer cmi.suspend_data en clair. */
+.persistence-panel { display: grid; gap: 10px; padding: 13px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }
+.persistence-heading { display: flex; justify-content: space-between; gap: 8px; align-items: center; font-size: 12px; font-weight: 720; }
+.persistence-heading > span { display: inline-flex; gap: 8px; align-items: center; }
+.persistence-heading .ui-icon { width: 15px; height: 15px; color: var(--accent); }
+.persistence-result { font-weight: 650; line-height: 1.45; color: var(--muted); font-size: 12px; }
+.persistence-result.persisted { color: var(--success); }
+.persistence-result.unsaved { color: var(--warning); }
+.persistence-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.persistence-facts > div { min-width: 0; display: grid; gap: 5px; padding: 9px; border: 1px solid var(--border-soft); border-radius: 8px; background: var(--surface); }
+.persistence-facts span { font-size: 10px; color: var(--muted); }
+.persistence-facts strong { font-size: 11px; font-weight: 700; overflow-wrap: anywhere; }
+.paused-state { flex: 1; display: flex; justify-content: center; align-items: center; flex-direction: column; gap: 15px; padding: 24px; text-align: center; color: var(--text); background: var(--stage); }
+.paused-state .paused-icon { display: grid; place-items: center; width: 68px; height: 68px; border-radius: 18px; border: 1px solid var(--border); background: var(--surface-2); color: var(--accent); }
+.paused-state .paused-icon .ui-icon { width: 32px; height: 32px; }
+.paused-state h2 { margin: 0; font-size: 19px; }
+.paused-state p { max-width: 400px; margin: 0; font-size: 12px; color: var(--muted); line-height: 1.7; }
+@media (max-width: 1150px) { .player-nav { flex-wrap: wrap; } }
+@media (max-width: 660px) { .player-nav .button { font-size: 0; gap: 0; } .player-nav .button .ui-icon { width: 16px; height: 16px; } }

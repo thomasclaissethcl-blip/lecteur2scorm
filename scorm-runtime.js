@@ -118,7 +118,7 @@
       if (this.standard === 'SCORM 2004') {
         const defaults = {
           'cmi._version': '1.0', 'cmi.learner_id': this.learnerId, 'cmi.learner_name': this.learnerName,
-          'cmi.location': '', 'cmi.credit': 'credit', 'cmi.entry': this.persisted ? 'resume' : 'ab-initio',
+          'cmi.location': '', 'cmi.credit': 'credit', 'cmi.entry': this.persisted?.data?.['cmi.exit'] === 'suspend' ? 'resume' : 'ab-initio',
           'cmi.completion_status': 'unknown', 'cmi.success_status': 'unknown', 'cmi.mode': 'normal',
           'cmi.exit': '', 'cmi.session_time': 'PT0H0M0S', 'cmi.total_time': 'PT0H0M0S',
           'cmi.suspend_data': '', 'cmi.launch_data': '', 'cmi.score.scaled': '', 'cmi.score.raw': '',
@@ -133,14 +133,14 @@
         };
         return Object.assign(defaults, previous, {
           'cmi.learner_id': this.learnerId, 'cmi.learner_name': this.learnerName,
-          'cmi.entry': this.persisted ? 'resume' : 'ab-initio', 'cmi.session_time': 'PT0H0M0S', 'cmi.exit': ''
+          'cmi.entry': this.persisted?.data?.['cmi.exit'] === 'suspend' ? 'resume' : 'ab-initio', 'cmi.session_time': 'PT0H0M0S', 'cmi.exit': ''
         });
       }
 
       const defaults = {
         'cmi.core.student_id': this.learnerId, 'cmi.core.student_name': this.learnerName,
         'cmi.core.lesson_location': '', 'cmi.core.credit': 'credit', 'cmi.core.lesson_status': 'not attempted',
-        'cmi.core.entry': this.persisted ? 'resume' : 'ab-initio', 'cmi.core.score.raw': '', 'cmi.core.score.min': '',
+        'cmi.core.entry': this.persisted?.data?.['cmi.core.exit'] === 'suspend' ? 'resume' : 'ab-initio', 'cmi.core.score.raw': '', 'cmi.core.score.min': '',
         'cmi.core.score.max': '', 'cmi.core.total_time': '0000:00:00.00', 'cmi.core.lesson_mode': 'normal',
         'cmi.core.exit': '', 'cmi.core.session_time': '0000:00:00.00', 'cmi.suspend_data': '', 'cmi.launch_data': '',
         'cmi.comments': '', 'cmi.comments_from_lms': '', 'cmi.objectives._count': '0', 'cmi.interactions._count': '0',
@@ -152,7 +152,7 @@
       };
       return Object.assign(defaults, previous, {
         'cmi.core.student_id': this.learnerId, 'cmi.core.student_name': this.learnerName,
-        'cmi.core.entry': this.persisted ? 'resume' : 'ab-initio', 'cmi.core.session_time': '0000:00:00.00', 'cmi.core.exit': ''
+        'cmi.core.entry': this.persisted?.data?.['cmi.core.exit'] === 'suspend' ? 'resume' : 'ab-initio', 'cmi.core.session_time': '0000:00:00.00', 'cmi.core.exit': ''
       });
     }
 

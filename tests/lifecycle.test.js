@@ -17,7 +17,9 @@ function setup() {
   const localStorage = {
     getItem: key => store.get(key) ?? null,
     setItem: (key,value) => store.set(key, value),
-    removeItem: key => store.delete(key)
+    removeItem: key => store.delete(key),
+    key: index => Array.from(store.keys())[index] ?? null,
+    get length() { return store.size; }
   };
   const itemA = { identifier: 'a', href: 'a.html', title: 'SCO A' };
   const itemB = { identifier: 'b', href: 'b.html', title: 'SCO B' };
@@ -45,17 +47,19 @@ function setup() {
   const els = {
     scoFrame: frame, emptyState: {hidden:true}, currentItemTitle: {textContent:''},
     prevBtn:{disabled:false}, nextBtn:{disabled:false}, reloadBtn:{disabled:false},
-    resetSessionBtn:{disabled:false}, openWindowBtn:{disabled:false}, newAttemptBtn:{disabled:false},
+    resetSessionBtn:{disabled:false}, openWindowBtn:{disabled:false}, closeSessionBtn:{disabled:false}, resumeSessionBtn:{disabled:false,hidden:true}, pausedState:{hidden:true}, newAttemptBtn:{disabled:false},
     learnerId: {value:'user-test'}, learnerName:{value:'Test'}
   };
   const context = vm.createContext({
     window: {}, localStorage, Date, Promise, setTimeout, clearTimeout,
     packageState: {hash:'test',manifest: {standard:'SCORM 1.2',launchableItems:[itemA,itemB],metadata:{}},virtualRoot:'fixture://'},
     currentItem: itemA, currentIndex:0, els, attemptNumber:1, attemptCount:1,
-    transitionQueue:Promise.resolve(), transitionSequence:0, scoClosing:false, transitionBusy:false, packageLoading:false,
+    transitionQueue:Promise.resolve(), transitionSequence:0, scoClosing:false, sessionPaused:false, resumeAudit:null, activeLearnerId:'user-test', transitionBusy:false, packageLoading:false,
     latestData:{}, storageState:{}, logs:[], learnerViewed:false,
     runtimePackageKey: (id,attempt)=>`test:${id}:${attempt}`,
-    renderLogs:()=>{}, renderMoodle:()=>{}, renderData:()=>{}, updateRuntimeLabel:()=>{}, updateOutlineActive:()=>{}, updateNavButtons:()=>{},
+    renderLogs:()=>{}, renderMoodle:()=>{}, renderData:()=>{}, updateRuntimeLabel:()=>{}, updateOutlineActive:()=>{}, updateNavButtons:()=>{}, updateAttemptsControl:()=>{},
+    getStoredSco: (id,n) => { const key=`scorm-reader:v1:test:${id}:${n}:SCORM 1.2:user-test`; const v=localStorage.getItem(key); return v?JSON.parse(v):null; },
+    learnerKey:()=> 'user-test', confirm:()=>true,
     uninstallGlobalApi:()=>{ delete context.window.API; },
     installGlobalApi:instance=>{ context.window.API=instance.api; },
     launchUrl:href=>`fixture://${href}`,
@@ -86,15 +90,46 @@ test('rechargement : le SCO ferme la session sur son API valide avant création 
   assert.equal(JSON.parse(localStorage.getItem(old.storageKey)).data['cmi.core.exit'],'suspend');
 });
 
-test('réinitialisation : l’effacement a lieu après le LMSFinish émis par le SCO', async () => {
+test('réinitialisation complète : l’effacement intervient après le LMSFinish et concerne tous les SCO et tentatives', async () => {
   const {context,events,old,items,localStorage} = setup();
-  await context.launchItem(items[0], true, true);
+  const key = (item, attempt) => `scorm-reader:v1:test:${item}:${attempt}:SCORM 1.2:user-test`;
+  localStorage.setItem(key('a',2), JSON.stringify({data:{'cmi.core.lesson_status':'passed'},writtenKeys:['cmi.core.lesson_status']}));
+  localStorage.setItem(key('b',1), JSON.stringify({data:{'cmi.core.lesson_status':'completed'},writtenKeys:['cmi.core.lesson_status']}));
+  localStorage.setItem('scorm-reader:attempts:v1:test:user-test','3');
+  localStorage.setItem('scorm-reader:v1:test:a:3:SCORM 1.2:another-user','keep');
+  localStorage.setItem('scorm-studio:theme:v1','light');
+  await context.resetAllProgress();
   assert.equal(events.find(e=>Array.isArray(e)&&e[0]==='finish')[1],'true');
-  assert.equal(localStorage.getItem(old.storageKey),null);
-  assert.equal(context.runtime.savedData,null);
-  const unload = events.indexOf('iframe:unload');
-  const clear = events.findIndex(e=>Array.isArray(e)&&e[0]==='system'&&e[1].includes('effacées'));
-  assert.ok(unload > -1 && clear > unload);
+  assert.equal(localStorage.getItem(key('a',2)),null);
+  assert.equal(localStorage.getItem(key('b',1)),null);
+  assert.equal(localStorage.getItem('scorm-reader:attempts:v1:test:user-test'),null);
+  assert.equal(localStorage.getItem('scorm-reader:v1:test:a:3:SCORM 1.2:another-user'),'keep');
+  assert.equal(localStorage.getItem('scorm-studio:theme:v1'),'light');
+  assert.equal(context.attemptNumber,1);
+  assert.equal(context.attemptCount,1);
+  assert.equal(context.runtime.persisted,null);
+  assert.equal(context.runtime.data['cmi.core.entry'],'ab-initio');
+  assert.equal(context.runtime.data['cmi.core.lesson_status'],'not attempted');
+  assert.ok(events.includes('iframe:unload'));
+});
+
+test('fermeture puis reprise : les valeurs validées sont retrouvées dans la même tentative', async () => {
+  const {context,events,old,items,localStorage} = setup();
+  assert.equal(old.api.LMSSetValue('cmi.suspend_data','stage-7'),'true');
+  await context.closeActiveSession();
+  assert.equal(context.sessionPaused,true);
+  assert.equal(context.runtime,null);
+  assert.equal(context.els.pausedState.hidden,false);
+  assert.equal(old.terminated,true);
+  assert.equal(JSON.parse(localStorage.getItem(old.storageKey)).data['cmi.suspend_data'],'stage-7');
+  await context.resumeActiveSession();
+  assert.equal(context.sessionPaused,false);
+  assert.equal(context.els.pausedState.hidden,true);
+  assert.notEqual(context.runtime,old);
+  assert.equal(context.runtime.api.LMSInitialize(''),'true');
+  assert.equal(context.runtime.api.LMSGetValue('cmi.suspend_data'),'stage-7');
+  assert.equal(context.runtime.api.LMSGetValue('cmi.core.entry'),'resume');
+  assert.equal(context.attemptNumber,1);
 });
 
 test('navigation multi-SCO : les dernières données du SCO sortant sont sauvegardées', async () => {

@@ -15,7 +15,9 @@ const __storage = new Map();
 Object.defineProperty(window,'localStorage',{configurable:true,value:{
   getItem:k => __storage.get(k) ?? null,
   setItem:(k,v) => __storage.set(k,String(v)),
-  removeItem:k => __storage.delete(k)
+  removeItem:k => __storage.delete(k),
+  key:i => [...__storage.keys()][i] ?? null,
+  get length() { return __storage.size; }
 }});
 </script>''')
 for file in ['zip-reader.js','manifest.js','scorm-runtime.js','moodle-simulator.js','app.js']:
@@ -32,9 +34,12 @@ for file in ['zip-reader.js','manifest.js','scorm-runtime.js','moodle-simulator.
         manifest:{standard:'SCORM 1.2',launchableItems:[itemA,itemB],metadata:{},manifestPath:'imsmanifest.xml'}};
       await launchItem(itemA);
     },
-    launch: (itemIndex, reload=false, reset=false) => launchItem(packageState.manifest.launchableItems[itemIndex],reload,reset),
+    launch: (itemIndex, reload=false) => launchItem(packageState.manifest.launchableItems[itemIndex],reload),
+    close: () => closeActiveSession(),
+    resume: () => resumeActiveSession(),
+    reset: () => resetAllProgress(),
     logs: () => logs.map(e=>({method:e.method,result:e.result,errorCode:e.errorCode})),
-    current: () => ({key:runtime?.storageKey, initialized:runtime?.initialized, stored:runtime?.savedData})
+    current: () => ({key:runtime?.storageKey, initialized:runtime?.initialized, stored:runtime?.savedData, paused:sessionPaused, entry:runtime?.data['cmi.core.entry']})
   };""")
     html = html.replace(f'<script src="{file}"></script>', '<script>' + source + '</script>')
 
@@ -71,12 +76,18 @@ with sync_playwright() as p:
     assert events[1:5] == [['get','incomplete','0'],['exit','true','0'],['session_time','true','0'],['finish','true','0']], events
     assert all(e['errorCode'] != 301 for e in page.evaluate('window.__studioTest.logs()'))
     assert page.evaluate('window.__studioTest.current().initialized')
-    page.evaluate('window.__studioTest.launch(0,true,true)')
+    page.evaluate('window.confirm=()=>true')
+    page.evaluate('window.__studioTest.close()')
+    page.wait_for_function('window.__studioTest.current().paused')
+    page.evaluate('window.__studioTest.resume()')
+    page.wait_for_function('window.__testEvents.filter(e=>e[0]==="initialize").length >= 3')
+    assert page.evaluate('window.__studioTest.current().entry') == 'resume'
+    page.evaluate('window.__studioTest.reset()')
     page.wait_for_function('window.__testEvents.filter(e=>e[0]==="initialize").length >= 3')
     assert page.evaluate('window.__studioTest.current().stored') is None, 'Reset must clear previous progress after unload'
     page.evaluate('window.__studioTest.launch(1,false)')
     page.wait_for_function('window.__testEvents.filter(e=>e[0]==="initialize").length >= 4')
     assert all(e['errorCode'] != 301 for e in page.evaluate('window.__studioTest.logs()'))
     assert not errors, errors
-    print('BROWSER LIFECYCLE PASSED: unload/reload/reset/SCO navigation; no SCORM 301; correct Finish order')
+    print('BROWSER LIFECYCLE PASSED: close/resume/reset/SCO navigation; no SCORM 301; correct Finish order')
     browser.close()

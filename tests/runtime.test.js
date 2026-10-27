@@ -48,3 +48,31 @@ test('forceSet marque une injection manuelle sans validation implicite',()=>{
   assert.equal(localStorage.getItem(runtime.storageKey),null);
   assert.equal(entries.at(-1).method,'SIM:modifier');
 });
+test('SCORM 1.2 : entrée resume uniquement si la précédente sortie demande suspend',()=>{
+  const {runtime,mem,opts,Runtime}=create();
+  runtime.api.LMSInitialize('');
+  runtime.api.LMSSetValue('cmi.core.lesson_status','incomplete');
+  runtime.api.LMSSetValue('cmi.suspend_data','question-4');
+  runtime.api.LMSSetValue('cmi.core.lesson_location','page-4');
+  runtime.api.LMSSetValue('cmi.core.exit','suspend');
+  runtime.api.LMSFinish('');
+  const resumed=new Runtime(opts);
+  assert.equal(resumed.data['cmi.core.entry'],'resume');
+  assert.equal(resumed.data['cmi.suspend_data'],'question-4');
+  assert.equal(resumed.data['cmi.core.lesson_location'],'page-4');
+  resumed.api.LMSInitialize('');
+  resumed.api.LMSSetValue('cmi.core.exit','');
+  resumed.api.LMSFinish('');
+  const later=new Runtime(opts);
+  assert.equal(later.data['cmi.core.entry'],'ab-initio');
+});
+test('SCORM 2004 : l’indicateur de reprise dépend de cmi.exit suspend',()=>{
+  const {runtime,opts,Runtime}=create('SCORM 2004');
+  runtime.api.Initialize('');
+  runtime.api.SetValue('cmi.exit','suspend');
+  runtime.api.SetValue('cmi.location','step-8');
+  runtime.api.Terminate('');
+  const resumed=new Runtime(opts);
+  assert.equal(resumed.data['cmi.entry'],'resume');
+  assert.equal(resumed.data['cmi.location'],'step-8');
+});
