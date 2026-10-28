@@ -15,6 +15,11 @@
   let resumeAudit = null;
   let transitionBusy = false;
   let packageLoading = false;
+  let contentIssues = [];
+  let contentIssueKeys = new Set();
+  let lastLaunchCheck = { checked: 0, missing: 0, entryFound: false };
+  let launchObservation = 0;
+  const maxContentIssues = 30;
   let currentItem = null;
   let currentIndex = -1;
   let latestData = {};
@@ -73,7 +78,7 @@
   async function init() {
     ['statusBadge','zipInput','resetSessionBtn','packageTitle','packageStandard','packageId','fileCount','learnerId','learnerName',
       'applyLearnerBtn','itemCount','courseOutline','prevBtn','nextBtn','reloadBtn','currentItemTitle','openWindowBtn','dropZone',
-      'emptyState','scoFrame','pausedState','closeSessionBtn','resumeSessionBtn','resumeSessionMainBtn','themeToggle','helpPopover','runtimeLabel','clearLogBtn','downloadLogBtn','logFilter','logCount',
+      'emptyState','scoFrame','contentAlert','contentAlertText','contentAlertDetails','contentAlertDismiss','contentDebugBtn','contentDiagnostics','contentDiagClose','contentDiagSummary','contentDiagList','contentDiagCopy','pausedState','closeSessionBtn','resumeSessionBtn','resumeSessionMainBtn','themeToggle','helpPopover','runtimeLabel','clearLogBtn','downloadLogBtn','logFilter','logCount',
       'dataFilter','dataBody','saveIndicator','forceCommitBtn','logList','manifestView','toast',
       'attemptSelect','newAttemptBtn','moodleScope','moodleScopeNote','moodleStatus','moodleScore',
       'moodleGrade','moodleCompletion','completionCount','completionRules','scoStates','diagnosticList',
@@ -84,11 +89,13 @@
     restoreTheme();
     bindEvents();
     setupHelp();
+    setupContentDiagnostics();
     renderMoodle();
     swReady = await ensureServiceWorker();
     if (!swReady) {
       setBadge('Service Worker indisponible', 'error');
-      showToast('Le navigateur ne permet pas d’activer le système de fichiers virtuel nécessaire au lecteur. Vérifiez que la page est ouverte en HTTPS.', true, 7000);
+      showToast('Service Worker indisponible. Certains modes privés (notamment Firefox) interdisent le chargement virtuel des ZIP.', true, 7000);
+      reportContentIssue('sw-unavailable', 'Le navigateur bloque le Service Worker nécessaire au chargement du SCORM.', 'SIM:ressource', 'Essayez en navigation normale, ou vérifiez les permissions de stockage et HTTPS.');
     }
   }
 
@@ -258,6 +265,7 @@
       await unloadScoFrame();
       scoClosing = false;
       uninstallGlobalApi();
+      resetContentDiagnostics();
       packageState = {
         fileName: file.name,
         zip,
@@ -326,6 +334,213 @@
     const clean = path.split(/[?#]/)[0];
     const ext = clean.includes('.') ? clean.split('.').pop().toLowerCase() : '';
     return mimeTypes[ext] || 'application/octet-stream';
+  }
+
+  // Resource and rendering diagnostics are deliberately separate from SCORM errors.
+  // A successful LMSInitialize does not mean that the H5P or SCORM UI has loaded.
+  function resetContentDiagnostics() {
+    contentIssues = [];
+    contentIssueKeys = new Set();
+    lastLaunchCheck = { checked: 0, missing: 0, entryFound: false };
+    if (els.contentAlert) els.contentAlert.hidden = true;
+    renderContentDiagnostics();
+  }
+
+  function setupContentDiagnostics() {
+    els.contentDebugBtn.addEventListener('click', () => toggleContentDiagnostics());
+    els.contentAlertDetails.addEventListener('click', () => toggleContentDiagnostics(true));
+    els.contentAlertDismiss.addEventListener('click', () => { els.contentAlert.hidden = true; });
+    els.contentDiagClose.addEventListener('click', () => toggleContentDiagnostics(false));
+    els.contentDiagCopy.addEventListener('click', async () => {
+      const report = formatContentDiagnostic();
+      try {
+        await navigator.clipboard.writeText(report);
+        showToast('Diagnostic copié.');
+      } catch {
+        showToast('Copie automatique indisponible : utilisez le journal JSON.', true);
+      }
+    });
+    navigator.serviceWorker?.addEventListener('message', event => {
+      const data = event.data;
+      if (data?.source !== 'scorm-studio-virtual-files' || data.kind !== 'missing' || !packageState) return;
+      const path = new URL(packageState.virtualRoot).pathname;
+      let resource;
+      try { resource = new URL(data.url); } catch { return; }
+      if (resource.origin !== location.origin || !resource.pathname.startsWith(path)) return;
+      reportContentIssue('missing:' + resource.pathname, `Fichier introuvable : ${resource.pathname.slice(path.length)}`, 'SIM:ressource', data.reason);
+    });
+    els.scoFrame.addEventListener('error', () => {
+      if (currentItem && !sessionPaused && !scoClosing) reportContentIssue('frame-error', 'La navigation vers le SCO a échoué.', 'SIM:affichage');
+    });
+  }
+
+  function toggleContentDiagnostics(force) {
+    const open = typeof force === 'boolean' ? force : els.contentDiagnostics.hidden;
+    els.contentDiagnostics.hidden = !open;
+    els.contentDebugBtn.setAttribute('aria-expanded', String(open));
+    if (open) renderContentDiagnostics();
+  }
+
+  function renderContentDiagnostics() {
+    if (!els.contentDiagSummary) return;
+    if (!packageState) {
+      els.contentDiagSummary.textContent = contentIssues.length ? 'Le navigateur signale une restriction de chargement.' : 'Chargez un SCORM pour examiner ses ressources.';
+    } else if (contentIssues.length) {
+      els.contentDiagSummary.textContent = `${contentIssues.length} anomalie(s) ou avertissement(s) concernant l’affichage.`;
+    } else {
+      els.contentDiagSummary.textContent = lastLaunchCheck.entryFound
+        ? `Fichier de lancement présent. ${lastLaunchCheck.checked} référence(s) vérifiée(s). Aucun problème détecté à ce stade.`
+        : 'Vérification des ressources en attente.';
+    }
+    els.contentDiagList.replaceChildren();
+    const entries = [];
+    if (packageState) {
+      entries.push({text:`Service Worker : ${swReady ? 'actif' : 'indisponible'}. Lecture des fichiers via Cache API.`, ok:swReady});
+      if (lastLaunchCheck.entryFound) entries.push({text:'Fichier HTML de lancement trouvé dans le cache local.',ok:true});
+      if (runtime?.initialized) entries.push({text:'API SCORM initialisée. Cela ne valide pas l’affichage du contenu.',ok:true});
+      if (runtime?.data?.['cmi.core.entry'] === 'resume' || runtime?.data?.['cmi.entry'] === 'resume') {
+        entries.push({text:'Reprise de session détectée. Pour écarter un état sauvegardé incompatible, testez une remise à zéro complète (destructive).',ok:false});
+      }
+    }
+    contentIssues.forEach(issue => entries.push({text:issue.message + (issue.detail ? ` (${issue.detail})` : ''),ok:false}));
+    if (!entries.length) entries.push({text:'Aucun relevé pour le moment.',ok:true});
+    entries.forEach(entry => {
+      const li = document.createElement('li');
+      li.className = entry.ok ? 'diag-ok' : 'diag-problem';
+      li.textContent = entry.text;
+      els.contentDiagList.appendChild(li);
+    });
+  }
+
+  function formatContentDiagnostic() {
+    const header = [
+      'SCORM Studio : diagnostic du contenu',
+      'Navigateur : ' + navigator.userAgent,
+      'Package : ' + (packageState?.manifest?.title || 'aucun'),
+      'SCO : ' + (currentItem?.title || 'aucun'),
+      'API initialisée : ' + Boolean(runtime?.initialized),
+      'Service Worker : ' + String(swReady),
+      'Fichier de lancement en cache : ' + String(lastLaunchCheck.entryFound),
+      'Références vérifiées : ' + lastLaunchCheck.checked
+    ];
+    return header.concat(contentIssues.length ? contentIssues.map(issue => `${issue.method} : ${issue.message} ${issue.detail || ''}`) : ['Aucune anomalie détectée par le lecteur.']).join('\n');
+  }
+
+  function reportContentIssue(key, message, method = 'SIM:affichage', detail = '') {
+    if (contentIssueKeys.has(key)) return;
+    contentIssueKeys.add(key);
+    const issue = { key, message, method, detail };
+    if (contentIssues.length < maxContentIssues) contentIssues.push(issue);
+    logs.push({time:new Date(),method,args:[message],result:detail,errorCode:0,severity:'warning',detail,
+      scoTitle:currentItem?.title || '',attempt:attemptNumber});
+    if (logs.length > 5000) logs.shift();
+    renderLogs();
+    els.contentAlertText.textContent = message.length > 115 ? message.slice(0, 112) + '…' : message;
+    els.contentAlert.hidden = false;
+    renderContentDiagnostics();
+  }
+
+  async function inspectCachedLaunch(url) {
+    if (!packageState || !url.startsWith(packageState.virtualRoot)) return;
+    let cache;
+    try { cache = await caches.open(CACHE_NAME); }
+    catch (error) {
+      reportContentIssue('cache-unavailable','Le stockage des fichiers SCORM est inaccessible.', 'SIM:ressource', String(error));
+      return;
+    }
+    const clean = new URL(url);
+    clean.search = ''; clean.hash = '';
+    const entry = await cache.match(clean.href);
+    lastLaunchCheck.entryFound = Boolean(entry);
+    if (!entry) {
+      reportContentIssue('missing-entry', 'Fichier de lancement absent du cache du package.', 'SIM:ressource',clean.pathname);
+      return;
+    }
+    if (!/\.html?$/i.test(clean.pathname)) { renderContentDiagnostics(); return; }
+    try {
+      const html = await entry.text();
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const baseTag = doc.querySelector('base[href]');
+      const documentBase = baseTag ? new URL(baseTag.getAttribute('href'),clean.href).href : clean.href;
+      const assetNodes = [...doc.querySelectorAll('script[src],link[href],img[src],source[src],video[src],audio[src]')].slice(0,120);
+      const packageBase = new URL(packageState.virtualRoot);
+      for (const node of assetNodes) {
+        const attribute = node.hasAttribute('src') ? 'src' : 'href';
+        const href = node.getAttribute(attribute);
+        if (!href || /^(data:|blob:|javascript:)/i.test(href)) continue;
+        let resolved;
+        try { resolved = new URL(href, documentBase); } catch { continue; }
+        if (resolved.origin !== packageBase.origin) continue;
+        lastLaunchCheck.checked++;
+        if (!resolved.pathname.startsWith(packageBase.pathname)) {
+          reportContentIssue('outside-package:' + resolved.pathname,
+            'Chemin absolu en dehors du dossier virtuel SCORM.', 'SIM:ressource',resolved.pathname);
+          continue;
+        }
+        resolved.search = ''; resolved.hash = '';
+        if (!(await cache.match(resolved.href))) {
+          lastLaunchCheck.missing++;
+          reportContentIssue('unavailable:' + resolved.pathname,
+            'Ressource référencée mais absente du ZIP : ' + resolved.pathname.slice(packageBase.pathname.length), 'SIM:ressource');
+        }
+      }
+      renderContentDiagnostics();
+    } catch (error) {
+      reportContentIssue('entry-inspection', 'Impossible d’inspecter les références du fichier de lancement.', 'SIM:affichage', String(error?.message || error));
+    }
+  }
+
+  function inspectLoadedFrame(observation) {
+    if (observation !== launchObservation || !currentItem || sessionPaused || scoClosing) return;
+    const frame = els.scoFrame;
+    try {
+      const document = frame.contentDocument;
+      if (!document || !document.body) {
+        reportContentIssue('document-unreadable', 'Le document du SCO est inaccessible ou non chargé.');
+        return;
+      }
+      const address = frame.contentWindow.location.href;
+      if (!address.startsWith(packageState.virtualRoot)) {
+        reportContentIssue('unexpected-url', 'Le SCO a navigué hors de son dossier virtuel.', 'SIM:affichage',address);
+      }
+      const trackError = event => {
+        if (observation !== launchObservation || scoClosing || sessionPaused) return;
+        const target = event.target;
+        const resource = target?.src || target?.href;
+        if (resource && target !== frame.contentWindow) {
+          reportContentIssue('resource-event:' + resource,'Échec de chargement d’une ressource du contenu.', 'SIM:ressource',resource);
+        } else if (event.message) {
+          reportContentIssue('js:' + event.message + ':' + event.filename,
+            'Erreur JavaScript dans le contenu.', 'SIM:affichage', `${event.message} ${event.filename || ''}:${event.lineno || ''}`);
+        }
+      };
+      frame.contentWindow.addEventListener('error', trackError, true);
+      frame.contentWindow.addEventListener('unhandledrejection', event => {
+        if (observation !== launchObservation || scoClosing || sessionPaused) return;
+        reportContentIssue('promise:' + String(event.reason), 'Erreur asynchrone du contenu.', 'SIM:affichage',String(event.reason));
+      });
+      // ResourceTiming is useful when supported, but responseStatus is not available in every browser.
+      const performanceEntries = frame.contentWindow.performance?.getEntriesByType('resource') || [];
+      for (const entry of performanceEntries.slice(0, 300)) {
+        if (entry.responseStatus >= 400) {
+          reportContentIssue('http:' + entry.name, `Ressource HTTP ${entry.responseStatus} pendant le démarrage.`, 'SIM:ressource',entry.name);
+        }
+      }
+      setTimeout(() => {
+        if (observation !== launchObservation || sessionPaused || scoClosing) return;
+        try {
+          const body = frame.contentDocument?.body;
+          if (!body) return;
+          const hasText = Boolean(body.innerText?.trim());
+          const hasVisual = Boolean(body.querySelector('canvas, video, img, svg, iframe, object, embed, input, button, [role="application"]'));
+          if (!hasText && !hasVisual) reportContentIssue('empty-render',
+            'Le document du SCO paraît vide après chargement. Un script ou une ressource peut être en cause.', 'SIM:affichage');
+        } catch { /* Some SCOs navigate to another origin. */ }
+      }, 6500);
+    } catch (error) {
+      reportContentIssue('cross-origin','Le SCO n’est plus accessible depuis la page du lecteur (origine différente).',
+        'SIM:affichage',String(error?.message || error));
+    }
   }
 
   function renderPackage() {
@@ -605,6 +820,14 @@
         els.pausedState.hidden = true;
         els.scoFrame.hidden = false;
         const url = launchUrl(item.href);
+        resetContentDiagnostics();
+        await inspectCachedLaunch(url);
+        if (sequence !== transitionSequence || packageState !== packageAtRequest) return;
+        launchObservation++;
+        const observation = launchObservation;
+        // Browser-level navigation errors do not appear in the SCORM API log.
+        // Observe the iframe separately without modifying the package HTML.
+        els.scoFrame.addEventListener('load', () => inspectLoadedFrame(observation), { once: true });
         els.scoFrame.src = forceReload ? appendCacheBuster(url) : url;
         els.currentItemTitle.textContent = item.title;
         updateOutlineActive();
@@ -940,6 +1163,7 @@
       }
       return `Appel refusé par l’API (code ${entry.errorCode}).`;
     }
+    if (method === 'SIM:ressource' || method === 'SIM:affichage') return entry.detail || 'Problème détecté pendant le chargement du contenu.';
     if (/^(LMSSetValue|SetValue|SIM:modifier)$/.test(method)) {
       if (/lesson_status|completion_status|success_status/.test(key)) return `Statut déclaré : ${val}.`;
       if (/score\.(raw|scaled)/.test(key)) return `Score transmis : ${val}.`;
@@ -961,6 +1185,7 @@
     if (!els.logList) return;
     const filter = els.logFilter.value;
     const shown = logs.filter(e => filter === 'all' ||
+      (filter === 'resources' && /^(SIM:ressource|SIM:affichage)$/.test(e.method)) ||
       (filter === 'errors' && Boolean(e.errorCode)) ||
       (filter === 'writes' && /^(LMSSetValue|SetValue|SIM:modifier)$/.test(e.method)) ||
       (filter === 'lifecycle' && /^(LMSInitialize|Initialize|LMSCommit|Commit|LMSFinish|Terminate)$/.test(e.method)));
@@ -971,7 +1196,7 @@
     const fragment = document.createDocumentFragment();
     // Keep the complete log for export, but cap DOM nodes for responsive large packages.
     shown.slice(-250).reverse().forEach(entry => {
-      const div = document.createElement('div'); div.className = 'log-entry' + (entry.errorCode ? ' log-error' : '');
+      const div = document.createElement('div'); div.className = 'log-entry' + (entry.errorCode ? ' log-error' : entry.severity === 'warning' ? ' log-warning' : '');
       const head = document.createElement('div'); head.className = 'log-head';
       const time = document.createElement('span'); time.className = 'log-time';
       time.textContent = entry.time.toLocaleTimeString('fr-FR', { hour12: false });

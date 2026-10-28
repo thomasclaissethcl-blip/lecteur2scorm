@@ -1,4 +1,4 @@
-# SCORM Studio v3 : suivi et reprise SCORM, simulation Moodle 4.5
+# SCORM Studio v4 : diagnostic de chargement, suivi SCORM et simulation Moodle 4.5
 
 Application web **100 % statique**, conçue pour GitHub Pages. Aucun serveur applicatif, PHP, Node.js ou appel API Moodle n'est nécessaire pour utiliser le lecteur. Le SCORM ZIP est extrait **dans le navigateur**, puis servi par un Service Worker sur la même origine. Les tentatives et réglages sont conservés dans les espaces de stockage locaux de ce navigateur.
 
@@ -13,11 +13,25 @@ Application web **100 % statique**, conçue pour GitHub Pages. Aucun serveur app
 - **Réinitialisation complète** : après confirmation, `Réinitialiser` ferme le contenu, efface **toutes les données CMI des SCO et toutes les tentatives** pour le package et l’apprenant actifs, remet le compteur à 1, vide le journal et relance le **premier SCO**. Les autres apprenants et packages restent inchangés ; les réglages Moodle et le thème sont conservés.
 - **Erreurs 301** : leur description distingue maintenant la lecture avant `LMSInitialize` de l’accès après terminaison ; consultez le journal pour déterminer l’origine d’un appel refusé.
 
+## Affichage blanc et diagnostic du chargement (v4)
+
+- **Icône « Fermer »** remplacée par un pictogramme de sortie de session, distinct du bouton « Nouvelle fenêtre ».
+- **Panneau diagnostic du contenu** : cliquez sur le bouclier dans la barre du lecteur. Le relevé présente l'état du Service Worker, la présence du fichier de lancement et les éventuelles ressources introuvables dans le package. Si une anomalie est détectée, une bannière d'alerte s'affiche au bas du lecteur, avec un accès direct aux détails.
+- **Vérification préalable** des liens statiques présents dans le fichier HTML de lancement : scripts, feuilles de style et ressources multimédias. Les liens dynamiques créés par JavaScript ne sont observables que s'ils produisent un échec détectable après lancement.
+- **Événements de fichiers virtuels** : lorsque le Service Worker ne trouve pas une ressource ou ne peut pas ouvrir le cache, un diagnostic est transmis à la page. Le journal propose un filtre **Ressources / affichage**, distinct des erreurs SCORM de l'API.
+- **Réponses HTTP partielles (`Range`)** : prise en charge dans le Service Worker pour les médias audio/vidéo du package, avec les réponses `206` et `416` appropriées.
+- **Vérification d'un affichage potentiellement vide** après quelques secondes et collecte des erreurs de ressources ou de scripts accessibles depuis l'iframe. Un script qui échoue avant l'installation des observateurs peut ne pas être détecté ; l'absence d'alerte ne prouve pas que le SCO fonctionne.
+- **Diagnostic copiable** : bouton « Copier le diagnostic » à transmettre avec l'export du journal SCORM, sans devoir transmettre tout le ZIP.
+
+**Important :** le journal `LMSInitialize → true` démontre que l'API fonctionne, mais ne valide pas le moteur H5P ni toutes ses dépendances. Le cas Firefox privé n'est pas nécessairement réparable par le lecteur : certains modes de navigation privée désactivent le Service Worker ou le Cache Storage, sur lesquels repose l'architecture actuelle. La v4 rend cette restriction explicite. L'outil reste statique et ne téléverse aucun fichier ; il ne peut pas garantir l'exécution de tous les packages dans tous les modes privés.
+
+Pour isoler un problème de reprise, vérifiez si le journal lit `cmi.core.entry = resume`. Ce n'est pas une erreur ; cela signifie qu'un état précédent est conservé. Après export si nécessaire, essayez la fonction « Réinitialiser » pour comparer avec un démarrage totalement vierge. Ne réinitialisez pas si vous souhaitez conserver cette progression.
+
 ## Fonctionnalités principales
 
 - **Moodle** (simulation du comportement de Moodle 4.5) : visualisation de l'état du SCO, du score brut, de la note calculée, des règles d'achèvement et des causes probables d'un blocage. Le panneau **Persistance et reprise** précise le statut sauvegardé, la position, la taille des données `suspend_data`, la prochaine valeur `entry` et les lectures observées après réouverture.
 - **Données** : comparaison des valeurs CMI *en mémoire* et du dernier snapshot *validé localement* (`Commit` ou `Finish` / `Terminate`). Les cellules modifiables permettent d'injecter des données de test, identifiées comme telles dans le journal.
-- **Journal** : suivi chronologique des appels API, du SCO, de la tentative, des arguments, des résultats, des codes d'erreur et d'une courte interprétation. Filtres par appels, écritures, cycle de vie ou erreurs. Export JSON avec snapshots et paramètres (jusqu'aux 5 000 derniers événements, conservés pendant la visite).
+- **Journal** : suivi chronologique des appels API, du SCO, de la tentative, des arguments, des résultats, des codes d'erreur et d'une courte interprétation. Filtres par appels, écritures, cycle de vie, erreurs API ou problèmes de ressources. Export JSON avec snapshots et paramètres (jusqu'aux 5 000 derniers événements, conservés pendant la visite).
 - **Tentatives** : création et consultation de plusieurs tentatives locales (maximum 100), notes des tentatives (meilleure, première, dernière achevée, moyenne) et notation des SCO (objets d'apprentissage, plus haute, moyenne, somme).
 - **Conditions d'achèvement** : statuts `passed` / `completed`, tous les SCO, score brut minimal, existence d'une note, note de passage et consultation simulée.
 
@@ -27,14 +41,14 @@ Tous les calculs sont recalculés automatiquement pendant l'exécution du packag
 
 1. Placez **le contenu de ce dossier** à la racine de votre dépôt GitHub, avec `index.html`, `app.js`, `scorm-runtime.js`, `moodle-simulator.js`, `manifest.js`, `zip-reader.js`, `styles.css`, `sw.js` et `.nojekyll`.
 2. Dans **Settings > Pages**, sélectionnez **Deploy from a branch** puis la branche de publication et le dossier **/(root)**, ou votre configuration GitHub Pages habituelle.
-3. Ouvrez l'URL HTTPS fournie par GitHub Pages. Le Service Worker a besoin de HTTPS (ou de `localhost` pendant le développement).
+3. Ouvrez l'URL HTTPS fournie par GitHub Pages. Le Service Worker a besoin de HTTPS (ou de `localhost` pendant le développement) et doit être autorisé par le navigateur. Il peut être indisponible en navigation privée.
 4. Glissez-déposez un fichier SCORM ZIP. Les fichiers ne sont pas téléversés vers GitHub ou Moodle.
 
 Les chemins utilisés sont relatifs au site, y compris dans une URL de projet `https://compte.github.io/depot/`. Si un ancien Service Worker empêche le chargement, rechargez la page et, au besoin, supprimez les données du site dans le navigateur. Le Service Worker est déjà configuré pour prendre immédiatement le contrôle des nouveaux clients.
 
 ## Utilisation et interprétation
 
-1. Ouvrez le package et commencez le SCO.
+1. Ouvrez le package et commencez le SCO. En cas de page blanche, utilisez le bouton « Diagnostic du chargement » (bouclier) à côté de « Nouvelle fenêtre », puis consultez le journal filtré sur « Ressources / affichage ».
 2. Dans **Moodle**, choisissez *Données en cours (projection)* pour voir l'évolution immédiate, y compris les modifications non validées. Choisissez *Données validées (Commit/Finish)* pour ne retenir que les valeurs persistées par l'émulateur.
 3. Ouvrez **Journal** pour suivre les appels `LMSInitialize`, `LMSSetValue`, `LMSCommit`, `LMSFinish` (SCORM 1.2) ou leur équivalent SCORM 2004.
 4. Reproduisez les réglages du véritable package Moodle dans **Paramètres Moodle simulés**. Ils sont enregistrés dans ce navigateur, sans lien avec un cours ou une activité Moodle existante.
@@ -72,6 +86,7 @@ Les contenus faisant des requêtes externes peuvent néanmoins contacter leurs p
 - Un rechargement de la page nécessite de réimporter le même ZIP ; le suivi validé dans `localStorage` est alors retrouvé (dans le même navigateur, tant qu'il n'a pas été supprimé).
 - Les lectures de données par le package sont observables dans le journal ; elles ne garantissent pas à elles seules une restauration visuelle correcte, qui doit être constatée manuellement.
 - Le lecteur n'est pas connecté à Moodle, ne modifie pas ses notes et ne reproduit pas les extensions locales de Moodle.
+- Le diagnostic ne garantit pas de résoudre une incompatibilité H5P, WebGL ou une politique restrictive propre au navigateur. Le chargement d'un véritable ZIP sur le site GitHub Pages doit encore être testé dans les navigateurs concernés.
 
 ## Tests
 
@@ -81,4 +96,4 @@ Tests unitaires sans dépendances externes :
 node --test tests/*.test.js
 ```
 
-Un package de test simple peut être créé avec `python tests/create-fixture.py`. Le script `tests/browser_smoke.py` décrit un parcours d'intégration Playwright facultatif. Les tests ne sont pas nécessaires pour le déploiement statique.
+Un test supplémentaire `tests/virtual-files.test.js` vérifie les ressources manquantes et les réponses HTTP partielles. Deux scénarios Chromium autonomes valident le cycle de vie et le panneau diagnostic sans serveur HTTP. Un package de test simple peut être créé avec `python tests/create-fixture.py`. Le script `tests/browser_smoke.py` décrit un parcours d'intégration Playwright facultatif. Les tests ne sont pas nécessaires pour le déploiement statique.

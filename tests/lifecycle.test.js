@@ -58,6 +58,7 @@ function setup() {
     latestData:{}, storageState:{}, logs:[], learnerViewed:false,
     runtimePackageKey: (id,attempt)=>`test:${id}:${attempt}`,
     renderLogs:()=>{}, renderMoodle:()=>{}, renderData:()=>{}, updateRuntimeLabel:()=>{}, updateOutlineActive:()=>{}, updateNavButtons:()=>{}, updateAttemptsControl:()=>{},
+    launchObservation:0, resetContentDiagnostics:()=>{}, inspectCachedLaunch:()=>Promise.resolve(),
     getStoredSco: (id,n) => { const key=`scorm-reader:v1:test:${id}:${n}:SCORM 1.2:user-test`; const v=localStorage.getItem(key); return v?JSON.parse(v):null; },
     learnerKey:()=> 'user-test', confirm:()=>true,
     uninstallGlobalApi:()=>{ delete context.window.API; },
@@ -85,6 +86,7 @@ test('rechargement : le SCO ferme la session sur son API valide avant création 
     ['get','incomplete','0'], ['exit','true','0'], ['time','true','0'], ['finish','true','0']
   ]);
   assert.equal(old.terminated,true);
+  assert.ok(events.some(e=>Array.isArray(e)&&e[0]==='iframe:launch'), 'The next SCO must actually be launched');
   assert.notEqual(context.runtime,old);
   assert.equal(context.runtime.initialized,false);
   assert.equal(JSON.parse(localStorage.getItem(old.storageKey)).data['cmi.core.exit'],'suspend');

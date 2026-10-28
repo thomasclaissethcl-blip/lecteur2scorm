@@ -286,3 +286,27 @@ input[type="checkbox"] { appearance: auto; width: 15px; height: 15px; margin: 0;
 .paused-state p { max-width: 400px; margin: 0; font-size: 12px; color: var(--muted); line-height: 1.7; }
 @media (max-width: 1150px) { .player-nav { flex-wrap: wrap; } }
 @media (max-width: 660px) { .player-nav .button { font-size: 0; gap: 0; } .player-nav .button .ui-icon { width: 16px; height: 16px; } }
+
+/* Content diagnostics stay outside the iframe and cannot obscure it unless opened. */
+.content-alert { position: absolute; z-index: 6; left: 14px; right: 14px; bottom: 14px; padding: 9px 11px;
+  display: flex; align-items: center; gap: 10px; border-radius: 10px; border: 1px solid rgba(245,200,121,.45);
+  background: #242735; color: #ffe5b6; box-shadow: 0 10px 28px rgba(0,0,0,.33); font-size: 12px; }
+.content-alert .ui-icon { flex: 0 0 17px; color: #f5c879; }
+.content-alert span { flex: 1; }
+.content-alert button { border: 1px solid #6c5738; border-radius: 6px; background: #39372f; color: #ffe5b6;
+  min-height: 28px; padding: 3px 9px; cursor: pointer; }
+.content-alert .alert-dismiss { padding: 2px 8px; font-size: 19px; line-height: 1; }
+.content-diagnostics { position: absolute; z-index: 8; top: 12px; bottom: 12px; right: 12px;
+  width: min(430px, calc(100% - 24px)); overflow: auto; padding: 17px; border-radius: 12px;
+  background: var(--surface); border: 1px solid var(--border); box-shadow: 0 15px 55px rgba(0,0,0,.48); color: var(--text); }
+.content-diag-title { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.content-diag-title strong { font-size: 15px; }
+.content-diag-summary { padding: 10px; border-radius: 8px; background: var(--surface-2); font-weight: 600; }
+.content-diag-list { list-style: none; padding: 0; margin: 12px 0; display: grid; gap: 8px; }
+.content-diag-list li { padding: 9px; border: 1px solid var(--border-soft); border-radius: 7px;
+  line-height: 1.5; overflow-wrap: anywhere; }
+.content-diag-list .diag-problem { color: var(--warning); border-color: rgba(245,200,121,.3); }
+.content-diag-list .diag-ok { color: var(--success); }
+.content-diag-actions { display: flex; justify-content: end; }
+.log-entry.log-warning { border-left: 2px solid var(--warning); }
+@media (max-width: 720px) { .content-alert { left: 8px; right: 8px; bottom: 8px; flex-wrap: wrap; } }

@@ -16,6 +16,8 @@
     <symbol id="i-rotate" viewBox="0 0 24 24"><path d="M3 11a9 9 0 1 1 2.8 6.5M3 4v7h7"/></symbol>
     <symbol id="i-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
     <symbol id="i-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-log-out" viewBox="0 0 24 24"><path d="M9 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4M14 7l5 5-5 5M8 12h11"/></symbol>
+    <symbol id="i-shield-alert" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="M12 7v6m0 3h.01"/></symbol>
     <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6m0-6-9 9M20 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h5"/></symbol>
     <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.7 2.7 0 0 1 5.3.6c0 1.8-2.8 2.2-2.8 4.2M12 17.4h.01"/></symbol>
     <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 15.5A8.5 8.5 0 0 1 8.5 4 8.5 8.5 0 1 0 20 15.5Z"/></symbol>
@@ -84,13 +86,14 @@
             <button id="prevBtn" class="icon-button" type="button" title="SCO précédent" aria-label="SCO précédent" disabled><svg class="ui-icon" aria-hidden="true"><use href="#i-left"></use></svg></button>
             <button id="nextBtn" class="icon-button" type="button" title="SCO suivant" aria-label="SCO suivant" disabled><svg class="ui-icon" aria-hidden="true"><use href="#i-right"></use></svg></button>
             <button id="reloadBtn" class="button compact" type="button" disabled><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg> Recharger</button>
-            <button id="closeSessionBtn" class="button compact" type="button" disabled title="Fermer le SCO sans effacer l'avancement"><svg class="ui-icon" aria-hidden="true"><use href="#i-external"></use></svg> Fermer</button>
+            <button id="closeSessionBtn" class="button compact" type="button" disabled title="Fermer le SCO sans effacer l'avancement"><svg class="ui-icon" aria-hidden="true"><use href="#i-log-out"></use></svg> Fermer</button>
             <button id="resumeSessionBtn" class="button compact primary" type="button" disabled hidden title="Reprendre la même tentative et récupérer les données enregistrées"><svg class="ui-icon" aria-hidden="true"><use href="#i-refresh"></use></svg> Reprendre</button>
           </div>
           <div class="current-item">
             <span class="eyebrow">Élément actif</span>
             <strong id="currentItemTitle">Aucun</strong>
           </div>
+          <button id="contentDebugBtn" class="icon-button" type="button" title="Diagnostic du chargement" aria-label="Diagnostic du chargement" aria-expanded="false"><svg class="ui-icon" aria-hidden="true"><use href="#i-shield-alert"></use></svg></button>
           <button id="openWindowBtn" class="button compact" type="button" disabled><svg class="ui-icon" aria-hidden="true"><use href="#i-external"></use></svg><span class="button-text"> Nouvelle fenêtre</span></button>
         </div>
 
@@ -103,6 +106,14 @@
             <p class="technical-note">Traitement local dans votre navigateur. Aucun transfert du ZIP.</p>
           </div>
           <iframe id="scoFrame" title="Contenu SCORM" hidden></iframe>
+          <div id="contentAlert" class="content-alert" hidden role="status"><svg class="ui-icon" aria-hidden="true"><use href="#i-shield-alert"></use></svg><span id="contentAlertText">Le contenu semble ne pas s'afficher correctement.</span><button type="button" id="contentAlertDetails">Détails</button><button type="button" id="contentAlertDismiss" class="alert-dismiss" aria-label="Masquer cette alerte">×</button></div>
+          <section id="contentDiagnostics" class="content-diagnostics" aria-label="Diagnostic du chargement du contenu" hidden>
+            <div class="content-diag-title"><strong>Diagnostic du contenu</strong><button id="contentDiagClose" type="button" class="icon-button" aria-label="Fermer le diagnostic">×</button></div>
+            <p class="small-helper">Détection locale : les appels SCORM réussis ne garantissent pas l'affichage du module.</p>
+            <div id="contentDiagSummary" class="content-diag-summary">Aucun package chargé.</div>
+            <ul id="contentDiagList" class="content-diag-list"></ul>
+            <div class="content-diag-actions"><button id="contentDiagCopy" class="button compact" type="button">Copier le diagnostic</button></div>
+          </section>
           <div id="pausedState" class="paused-state" hidden role="status">
             <div class="paused-icon"><svg class="ui-icon" aria-hidden="true"><use href="#i-database"></use></svg></div>
             <h2>Session fermée</h2>
@@ -209,7 +220,7 @@
         <section id="tab-log" class="tab-panel" role="tabpanel">
           <div class="log-toolbar">
             <label for="logFilter">Filtrer</label><button class="help-trigger" data-help="log" type="button" aria-label="Aide : journal"><svg class="ui-icon" aria-hidden="true"><use href="#i-help"></use></svg></button>
-            <select id="logFilter"><option value="all">Tous les appels</option><option value="writes">Écritures</option><option value="lifecycle">Initialisation, Commit, Finish</option><option value="errors">Erreurs</option></select>
+            <select id="logFilter"><option value="all">Tous les appels</option><option value="writes">Écritures</option><option value="lifecycle">Initialisation, Commit, Finish</option><option value="errors">Erreurs API</option><option value="resources">Ressources / affichage</option></select>
             <span id="logCount" class="muted">0 événement</span>
           </div>
           <div id="logList" class="log-list">
