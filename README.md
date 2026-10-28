@@ -1,4 +1,4 @@
-# SCORM Studio v4 : diagnostic de chargement, suivi SCORM et simulation Moodle 4.5
+# SCORM Studio v5 : diagnostic renforcé et interface corrigée
 
 Application web **100 % statique**, conçue pour GitHub Pages. Aucun serveur applicatif, PHP, Node.js ou appel API Moodle n'est nécessaire pour utiliser le lecteur. Le SCORM ZIP est extrait **dans le navigateur**, puis servi par un Service Worker sur la même origine. Les tentatives et réglages sont conservés dans les espaces de stockage locaux de ce navigateur.
 
@@ -13,19 +13,24 @@ Application web **100 % statique**, conçue pour GitHub Pages. Aucun serveur app
 - **Réinitialisation complète** : après confirmation, `Réinitialiser` ferme le contenu, efface **toutes les données CMI des SCO et toutes les tentatives** pour le package et l’apprenant actifs, remet le compteur à 1, vide le journal et relance le **premier SCO**. Les autres apprenants et packages restent inchangés ; les réglages Moodle et le thème sont conservés.
 - **Erreurs 301** : leur description distingue maintenant la lecture avant `LMSInitialize` de l’accès après terminaison ; consultez le journal pour déterminer l’origine d’un appel refusé.
 
-## Affichage blanc et diagnostic du chargement (v4)
+## Corrections et diagnostic Chrome de la v5
 
-- **Icône « Fermer »** remplacée par un pictogramme de sortie de session, distinct du bouton « Nouvelle fenêtre ».
-- **Panneau diagnostic du contenu** : cliquez sur le bouclier dans la barre du lecteur. Le relevé présente l'état du Service Worker, la présence du fichier de lancement et les éventuelles ressources introuvables dans le package. Si une anomalie est détectée, une bannière d'alerte s'affiche au bas du lecteur, avec un accès direct aux détails.
-- **Vérification préalable** des liens statiques présents dans le fichier HTML de lancement : scripts, feuilles de style et ressources multimédias. Les liens dynamiques créés par JavaScript ne sont observables que s'ils produisent un échec détectable après lancement.
-- **Événements de fichiers virtuels** : lorsque le Service Worker ne trouve pas une ressource ou ne peut pas ouvrir le cache, un diagnostic est transmis à la page. Le journal propose un filtre **Ressources / affichage**, distinct des erreurs SCORM de l'API.
-- **Réponses HTTP partielles (`Range`)** : prise en charge dans le Service Worker pour les médias audio/vidéo du package, avec les réponses `206` et `416` appropriées.
-- **Vérification d'un affichage potentiellement vide** après quelques secondes et collecte des erreurs de ressources ou de scripts accessibles depuis l'iframe. Un script qui échoue avant l'installation des observateurs peut ne pas être détecté ; l'absence d'alerte ne prouve pas que le SCO fonctionne.
-- **Diagnostic copiable** : bouton « Copier le diagnostic » à transmettre avec l'export du journal SCORM, sans devoir transmettre tout le ZIP.
+- **Bouton « Nouvelle fenêtre »** : la barre du lecteur possède désormais quatre zones de grille explicites (navigation, titre, diagnostic, nouvelle fenêtre). La disposition se replie sur deux lignes dans les espaces réduits. Le bouton ne déborde plus sous l’iframe. La position a été vérifiée dans Chromium sur six largeurs, de 390 à 1440 pixels.
+- **Mise à jour du Service Worker** : la v5 utilise un nouveau fichier `sw-v5.js`. Lorsqu’un navigateur conserve l’ancien worker, l’application attend son remplacement ou recharge une seule fois la page. Le cache des packages et les progressions restent compatibles avec les versions antérieures. Le fichier `sw.js` reste inclus pour les pages mises en cache avec l’ancienne interface.
+- **Diagnostic renforcé facultatif** : dans le panneau de diagnostic du contenu (icône bouclier), cliquez sur **« Diagnostic renforcé »**. Le SCO redémarre dans la même tentative et le Service Worker ajoute temporairement un petit capteur au HTML servi par le navigateur, avant les scripts du package. Ce capteur relève les erreurs JavaScript précoces, les promesses rejetées, les erreurs de ressources et des indicateurs de visibilité du contenu. Le ZIP original et les fichiers en cache restent inchangés. **« Relancer normalement »** désactive le capteur et redémarre le SCO.
+- **Diagnostic d'affichage** : la copie du rapport inclut la taille de l’iframe, son état de visibilité, le statut de chargement du document, le nombre d’éléments HTML et les mesures remontées par le capteur. L’absence d’erreurs détectées n’équivaut pas à une preuve que le contenu est opérationnel.
 
-**Important :** le journal `LMSInitialize → true` démontre que l'API fonctionne, mais ne valide pas le moteur H5P ni toutes ses dépendances. Le cas Firefox privé n'est pas nécessairement réparable par le lecteur : certains modes de navigation privée désactivent le Service Worker ou le Cache Storage, sur lesquels repose l'architecture actuelle. La v4 rend cette restriction explicite. L'outil reste statique et ne téléverse aucun fichier ; il ne peut pas garantir l'exécution de tous les packages dans tous les modes privés.
+### Procédure en cas de page blanche
 
-Pour isoler un problème de reprise, vérifiez si le journal lit `cmi.core.entry = resume`. Ce n'est pas une erreur ; cela signifie qu'un état précédent est conservé. Après export si nécessaire, essayez la fonction « Réinitialiser » pour comparer avec un démarrage totalement vierge. Ne réinitialisez pas si vous souhaitez conserver cette progression.
+1. Ouvrez Chrome, chargez votre ZIP et attendez l’apparition éventuelle du contenu.
+2. Cliquez sur le bouclier du lecteur, puis **Diagnostic renforcé**. Cela ferme puis recharge le SCO dans la même tentative, sans effacer la progression conservée.
+3. Si l’écran reste blanc, attendez quelques secondes, cliquez **Copier le diagnostic**, puis récupérez également les entrées du journal sous **Ressources / affichage**.
+4. Pour distinguer un état SCORM sauvegardé incompatible d’un problème initial, choisissez un **nouvel identifiant d’apprenant de test** dans la colonne de gauche, puis **Appliquer**. Cela démarre avec un suivi distinct, sans effacer celui du premier apprenant.
+5. Comparez le comportement avec Firefox normal. Transmettez les diagnostics des deux navigateurs ou le ZIP de test si vous pouvez le partager.
+
+Le rapport original montre `LMSInitialize = true` et des données CMI relues, mais cela ne garantit pas l’exécution de l’interface H5P. Sans le package « fantasy map 2 181 (1) », il n’est pas possible d’établir la cause exacte de la page blanche. Le diagnostic v5 vise à identifier le premier script ou état défaillant.
+
+**Attention :** le mode renforcé modifie temporairement la réponse HTML que voit le contenu pour effectuer l’instrumentation. Certains packages très sensibles à l’ordre des scripts peuvent réagir différemment sous instrumentation. Confirmez toujours le diagnostic en mode normal.
 
 ## Fonctionnalités principales
 
@@ -39,7 +44,7 @@ Tous les calculs sont recalculés automatiquement pendant l'exécution du packag
 
 ## Installation GitHub Pages
 
-1. Placez **le contenu de ce dossier** à la racine de votre dépôt GitHub, avec `index.html`, `app.js`, `scorm-runtime.js`, `moodle-simulator.js`, `manifest.js`, `zip-reader.js`, `styles.css`, `sw.js` et `.nojekyll`.
+1. Placez **le contenu de ce dossier** à la racine de votre dépôt GitHub, avec `index.html`, `app.js`, `scorm-runtime.js`, `moodle-simulator.js`, `manifest.js`, `zip-reader.js`, `styles.css`, `sw-v5.js`, `sw.js` et `.nojekyll`.
 2. Dans **Settings > Pages**, sélectionnez **Deploy from a branch** puis la branche de publication et le dossier **/(root)**, ou votre configuration GitHub Pages habituelle.
 3. Ouvrez l'URL HTTPS fournie par GitHub Pages. Le Service Worker a besoin de HTTPS (ou de `localhost` pendant le développement) et doit être autorisé par le navigateur. Il peut être indisponible en navigation privée.
 4. Glissez-déposez un fichier SCORM ZIP. Les fichiers ne sont pas téléversés vers GitHub ou Moodle.
@@ -96,4 +101,10 @@ Tests unitaires sans dépendances externes :
 node --test tests/*.test.js
 ```
 
-Un test supplémentaire `tests/virtual-files.test.js` vérifie les ressources manquantes et les réponses HTTP partielles. Deux scénarios Chromium autonomes valident le cycle de vie et le panneau diagnostic sans serveur HTTP. Un package de test simple peut être créé avec `python tests/create-fixture.py`. Le script `tests/browser_smoke.py` décrit un parcours d'intégration Playwright facultatif. Les tests ne sont pas nécessaires pour le déploiement statique.
+Les tests supplémentaires `tests/virtual-files.test.js` et `tests/virtual-files-v5.test.js` vérifie les ressources manquantes et les réponses HTTP partielles. Deux scénarios Chromium autonomes valident le cycle de vie et le panneau diagnostic sans serveur HTTP. Un package de test simple peut être créé avec `python tests/create-fixture.py`. Le script `tests/browser_smoke.py` décrit un parcours d'intégration Playwright facultatif. Les tests ne sont pas nécessaires pour le déploiement statique.
+
+### Vérification effectuée pour la v5
+
+- 28 tests Node.js réussis (moteur SCORM, simulation Moodle, cycle de vie et fichier virtuel).
+- Six formats d’écran validés via Chromium avec une page HTML locale mise en mémoire (vérification de la position du bouton « Nouvelle fenêtre »).
+- L’exécution du scénario complet avec un ZIP dans Chromium a été tentée, mais l’environnement de test a refusé l’accès au serveur local (`ERR_BLOCKED_BY_ADMINISTRATOR`). Elle doit être reproduite sur GitHub Pages.

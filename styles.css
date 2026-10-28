@@ -118,8 +118,12 @@ input[type="checkbox"] { appearance: auto; width: 15px; height: 15px; margin: 0;
 .outline-item button.active .item-marker { color: var(--accent); }
 .empty-hint, .muted { color: var(--muted); font-size: 11.5px; }
 .empty-hint { padding: 0 8px; line-height: 1.6; }
-.player-column { min-width: 0; min-height: 0; display: grid; grid-template-rows: 56px minmax(0,1fr); gap: 13px; }
-.player-toolbar { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 12px; padding: 9px 11px; }
+.player-column { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0,1fr); gap: 13px; }
+.player-toolbar { display: grid; grid-template-areas: "navigation current diagnostic external"; grid-template-columns: max-content minmax(0,1fr) 35px max-content; align-items: center; gap: 9px; min-height: 56px; padding: 9px 11px; position: relative; z-index: 2; }
+.player-toolbar .player-nav { grid-area: navigation; min-width: 0; }
+.player-toolbar .current-item { grid-area: current; }
+.player-toolbar #contentDebugBtn { grid-area: diagnostic; }
+.player-toolbar #openWindowBtn { grid-area: external; justify-self: end; }
 .player-nav { gap: 5px; }
 .current-item { min-width: 0; text-align: center; }
 .current-item strong { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; margin-top: 3px; }
@@ -257,7 +261,11 @@ input[type="checkbox"] { appearance: auto; width: 15px; height: 15px; margin: 0;
   .workspace { display: flex; flex-direction: column; gap: 10px; padding: 10px; }
   .sidebar { flex: none; max-height: 390px; min-height: 210px; }
   .player-column { flex: none; height: 535px; }
-  .player-toolbar { grid-template-columns: auto minmax(0,1fr) auto; }
+  .player-toolbar { grid-template-areas: "navigation diagnostic external" "current current current"; grid-template-columns: minmax(0,1fr) 35px 35px; gap: 5px; }
+  .player-toolbar .player-nav { flex-wrap: nowrap; }
+  .player-toolbar .current-item { text-align: left; padding: 2px 3px; }
+  .player-toolbar #openWindowBtn { width: 35px; padding: 0; }
+  .player-toolbar #openWindowBtn .button-text { display: none; }
   .player-nav .button { font-size: 0; width: 34px; padding: 4px; }
   .player-nav .button .ui-icon { width: 17px; height: 17px; }
   .inspector { flex: none; min-height: 590px; height: min(780px, 90dvh); }
@@ -310,3 +318,20 @@ input[type="checkbox"] { appearance: auto; width: 15px; height: 15px; margin: 0;
 .content-diag-actions { display: flex; justify-content: end; }
 .log-entry.log-warning { border-left: 2px solid var(--warning); }
 @media (max-width: 720px) { .content-alert { left: 8px; right: 8px; bottom: 8px; flex-wrap: wrap; } }
+
+/* v5 : narrow screens keep both diagnostic and external-window commands outside the iframe. */
+@media (min-width:661px) and (max-width:1250px) {
+  .player-toolbar { grid-template-areas: "navigation diagnostic external" "current current current"; grid-template-columns: minmax(0,1fr) 35px 35px; gap: 5px; }
+  .player-toolbar .current-item { text-align: left; padding: 2px 4px; }
+  #openWindowBtn { width: 35px; padding: 0; }
+  #openWindowBtn .button-text { display: none; }
+}
+@media (max-width:440px) {
+  .player-nav { gap: 3px; }
+  .player-nav .button { width: 30px; min-height: 33px; }
+  .player-nav .icon-button { width: 32px; min-height: 33px; height: 33px; }
+}
+.content-diag-actions { gap: 8px; flex-wrap: wrap; justify-content: stretch; }
+.content-diag-actions .button { flex: 1 1 175px; }
+.content-diag-advanced { margin-top: 11px; font-size: 11px; line-height: 1.55; color: var(--muted); }
+#contentDiagModeBtn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }

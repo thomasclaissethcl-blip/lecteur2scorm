@@ -47,18 +47,18 @@ function setup() {
   const els = {
     scoFrame: frame, emptyState: {hidden:true}, currentItemTitle: {textContent:''},
     prevBtn:{disabled:false}, nextBtn:{disabled:false}, reloadBtn:{disabled:false},
-    resetSessionBtn:{disabled:false}, openWindowBtn:{disabled:false}, closeSessionBtn:{disabled:false}, resumeSessionBtn:{disabled:false,hidden:true}, pausedState:{hidden:true}, newAttemptBtn:{disabled:false},
+    resetSessionBtn:{disabled:false}, openWindowBtn:{disabled:false}, contentDiagModeBtn:{disabled:false}, closeSessionBtn:{disabled:false}, resumeSessionBtn:{disabled:false,hidden:true}, pausedState:{hidden:true}, newAttemptBtn:{disabled:false},
     learnerId: {value:'user-test'}, learnerName:{value:'Test'}
   };
   const context = vm.createContext({
-    window: {}, localStorage, Date, Promise, setTimeout, clearTimeout,
+    window: {}, localStorage, Date, Promise, URL, setTimeout, clearTimeout,
     packageState: {hash:'test',manifest: {standard:'SCORM 1.2',launchableItems:[itemA,itemB],metadata:{}},virtualRoot:'fixture://'},
     currentItem: itemA, currentIndex:0, els, attemptNumber:1, attemptCount:1,
     transitionQueue:Promise.resolve(), transitionSequence:0, scoClosing:false, sessionPaused:false, resumeAudit:null, activeLearnerId:'user-test', transitionBusy:false, packageLoading:false,
     latestData:{}, storageState:{}, logs:[], learnerViewed:false,
     runtimePackageKey: (id,attempt)=>`test:${id}:${attempt}`,
     renderLogs:()=>{}, renderMoodle:()=>{}, renderData:()=>{}, updateRuntimeLabel:()=>{}, updateOutlineActive:()=>{}, updateNavButtons:()=>{}, updateAttemptsControl:()=>{},
-    launchObservation:0, resetContentDiagnostics:()=>{}, inspectCachedLaunch:()=>Promise.resolve(),
+    launchObservation:0, diagnosticMode:false, resetContentDiagnostics:()=>{}, inspectCachedLaunch:()=>Promise.resolve(),
     getStoredSco: (id,n) => { const key=`scorm-reader:v1:test:${id}:${n}:SCORM 1.2:user-test`; const v=localStorage.getItem(key); return v?JSON.parse(v):null; },
     learnerKey:()=> 'user-test', confirm:()=>true,
     uninstallGlobalApi:()=>{ delete context.window.API; },

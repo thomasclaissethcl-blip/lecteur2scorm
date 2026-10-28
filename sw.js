@@ -16,6 +16,58 @@ async function reportMissing(requestUrl, reason) {
   }
 }
 
+// Injected only when the user deliberately activates enhanced diagnostics.
+// Normal SCORM content is served byte-for-byte unchanged.
+const MONITOR_SCRIPT = `<script>
+(function(){
+  var sent = 0, limit = 40;
+  function send(kind, message) {
+    if (sent >= limit) return;
+    sent++;
+    try { window.parent.postMessage({source:'scorm-studio-content-debug',kind:kind,
+      message:String(message || '').slice(0,1500),url:location.href},location.origin); } catch (_) {}
+  }
+  window.addEventListener('error',function(e) {
+    var resource=e.target && (e.target.src || e.target.href);
+    if (resource && e.target !== window) send('resource-error',resource);
+    else send('js-error',(e.error && e.error.stack || e.message || 'Script error')+' @ '+(e.filename||'')+':'+(e.lineno||''));
+  },true);
+  window.addEventListener('unhandledrejection',function(e) {
+    send('promise-error', e.reason && (e.reason.stack || e.reason.message) || String(e.reason));
+  });
+  function check() {
+    try {
+      var b=document.body;
+      if (!b) { send('visual-check','body absent'); return; }
+      var nodes=b.querySelectorAll('h1,h2,h3,p,main,section,article,div,canvas,iframe,svg,video,img,button,input,[role="application"]');
+      var visible=0;
+      for (var i=0;i<Math.min(nodes.length,800);i++) {
+        var e=nodes[i],r=e.getBoundingClientRect(),s=getComputedStyle(e);
+        if (r.width>1 && r.height>1 && s.display!=='none' && s.visibility!=='hidden' && s.opacity!=='0') visible++;
+      }
+      send('visual-check','visible='+visible+' nodes='+nodes.length+' text='+(b.innerText||'').trim().length+
+        ' viewport='+window.innerWidth+'x'+window.innerHeight+' body='+b.getBoundingClientRect().width+'x'+b.getBoundingClientRect().height);
+    } catch (err) { send('visual-check','inspection impossible : '+String(err)); }
+  }
+  document.addEventListener('DOMContentLoaded',function(){send('dom-ready','Document HTML analysé');setTimeout(check,1000);});
+  window.addEventListener('load',function(){send('loaded','Événement load du document');setTimeout(check,4000);});
+  send('boot','Capteur installé avant les scripts de la page');
+})();
+</script>`;
+
+async function instrumentDocument(cached) {
+  const html = await cached.text();
+  // Inject the early error monitor as the very first executable script.
+  const output = /<head\b[^>]*>/i.test(html)
+    ? html.replace(/<head\b[^>]*>/i, match => match + MONITOR_SCRIPT)
+    : html.replace(/<!doctype[^>]*>/i, match => match + MONITOR_SCRIPT);
+  const headers = new Headers(cached.headers);
+  headers.set('Cache-Control','no-store');
+  headers.delete('Content-Length');
+  return new Response(output === html ? MONITOR_SCRIPT + html : output,
+    {status:200,headers});
+}
+
 async function serveVirtualFile(request, url) {
   try {
     const cache = await caches.open(CACHE_NAME);
@@ -32,6 +84,11 @@ async function serveVirtualFile(request, url) {
       return new Response('SCORM virtual file not found: ' + url.pathname, {
         status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8' }
       });
+    }
+
+    if (request.method === 'GET' && url.searchParams.get('__scorm_debug') === '1' &&
+        /\.html?$/i.test(url.pathname) && (cached.headers.get('content-type') || '').includes('html')) {
+      return instrumentDocument(cached);
     }
 
     // Cache API entries contain the full file. Range support is required by

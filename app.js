@@ -3,7 +3,8 @@
 
   const CACHE_NAME = 'scorm-reader-packages-v1';
   const APP_BASE = new URL('./', document.baseURI);
-  const SW_RELOAD_KEY = 'scorm-reader-sw-reload';
+  const SW_RELOAD_KEY = 'scorm-reader-sw-reload-v5';
+  const SW_SCRIPT_URL = new URL('sw-v5.js', APP_BASE).href;
   const els = {};
   let swReady = false;
   let packageState = null;
@@ -19,6 +20,10 @@
   let contentIssueKeys = new Set();
   let lastLaunchCheck = { checked: 0, missing: 0, entryFound: false };
   let launchObservation = 0;
+  let diagnosticMode = false;
+  let debugTelemetry = [];
+  let lastFrameSnapshot = null;
+  const maxDebugTelemetry = 45;
   const maxContentIssues = 30;
   let currentItem = null;
   let currentIndex = -1;
@@ -78,7 +83,7 @@
   async function init() {
     ['statusBadge','zipInput','resetSessionBtn','packageTitle','packageStandard','packageId','fileCount','learnerId','learnerName',
       'applyLearnerBtn','itemCount','courseOutline','prevBtn','nextBtn','reloadBtn','currentItemTitle','openWindowBtn','dropZone',
-      'emptyState','scoFrame','contentAlert','contentAlertText','contentAlertDetails','contentAlertDismiss','contentDebugBtn','contentDiagnostics','contentDiagClose','contentDiagSummary','contentDiagList','contentDiagCopy','pausedState','closeSessionBtn','resumeSessionBtn','resumeSessionMainBtn','themeToggle','helpPopover','runtimeLabel','clearLogBtn','downloadLogBtn','logFilter','logCount',
+      'emptyState','scoFrame','contentAlert','contentAlertText','contentAlertDetails','contentAlertDismiss','contentDebugBtn','contentDiagnostics','contentDiagClose','contentDiagSummary','contentDiagList','contentDiagCopy','contentDiagModeBtn','pausedState','closeSessionBtn','resumeSessionBtn','resumeSessionMainBtn','themeToggle','helpPopover','runtimeLabel','clearLogBtn','downloadLogBtn','logFilter','logCount',
       'dataFilter','dataBody','saveIndicator','forceCommitBtn','logList','manifestView','toast',
       'attemptSelect','newAttemptBtn','moodleScope','moodleScopeNote','moodleStatus','moodleScore',
       'moodleGrade','moodleCompletion','completionCount','completionRules','scoStates','diagnosticList',
@@ -191,17 +196,17 @@
   async function ensureServiceWorker() {
     if (!('serviceWorker' in navigator) || !window.isSecureContext) return false;
     try {
-      await navigator.serviceWorker.register(new URL('sw.js', APP_BASE).href, {
-        scope: APP_BASE.href,
-        updateViaCache: 'none'
+      const registration = await navigator.serviceWorker.register(SW_SCRIPT_URL, {
+        scope: APP_BASE.href, updateViaCache: 'none'
       });
+      await registration.update().catch(() => {});
       await navigator.serviceWorker.ready;
-
-      if (!navigator.serviceWorker.controller) {
-        await waitForServiceWorkerControl(2500);
+      // A v4 controller can serve the first load while v5 is installing.
+      // Never begin serving a ZIP with a worker whose fetch implementation is unknown.
+      if (navigator.serviceWorker.controller?.scriptURL !== SW_SCRIPT_URL) {
+        await waitForServiceWorkerControl(4500, () => navigator.serviceWorker.controller?.scriptURL === SW_SCRIPT_URL);
       }
-
-      if (!navigator.serviceWorker.controller) {
+      if (navigator.serviceWorker.controller?.scriptURL !== SW_SCRIPT_URL) {
         if (!sessionStorage.getItem(SW_RELOAD_KEY)) {
           sessionStorage.setItem(SW_RELOAD_KEY, '1');
           location.reload();
@@ -209,7 +214,6 @@
         }
         return false;
       }
-
       sessionStorage.removeItem(SW_RELOAD_KEY);
       return true;
     } catch (error) {
@@ -218,18 +222,24 @@
     }
   }
 
-  function waitForServiceWorkerControl(timeoutMs) {
-    if (navigator.serviceWorker.controller) return Promise.resolve();
+  function waitForServiceWorkerControl(timeoutMs, isReady = () => Boolean(navigator.serviceWorker.controller)) {
+    if (isReady()) return Promise.resolve();
     return new Promise(resolve => {
       let settled = false;
       const finish = () => {
-        if (settled) return;
+        if (settled || !isReady()) return;
         settled = true;
         clearTimeout(timer);
         navigator.serviceWorker.removeEventListener('controllerchange', finish);
         resolve();
       };
-      const timer = setTimeout(finish, timeoutMs);
+      const timeout = () => {
+        if (settled) return;
+        settled = true;
+        navigator.serviceWorker.removeEventListener('controllerchange', finish);
+        resolve();
+      };
+      const timer = setTimeout(timeout, timeoutMs);
       navigator.serviceWorker.addEventListener('controllerchange', finish);
     });
   }
@@ -265,6 +275,9 @@
       await unloadScoFrame();
       scoClosing = false;
       uninstallGlobalApi();
+      diagnosticMode = false;
+      els.contentDiagModeBtn.textContent = 'Diagnostic renforcé';
+      els.contentDiagModeBtn.setAttribute('aria-pressed','false');
       resetContentDiagnostics();
       packageState = {
         fileName: file.name,
@@ -342,7 +355,10 @@
     contentIssues = [];
     contentIssueKeys = new Set();
     lastLaunchCheck = { checked: 0, missing: 0, entryFound: false };
+    debugTelemetry = [];
+    lastFrameSnapshot = null;
     if (els.contentAlert) els.contentAlert.hidden = true;
+    if (els.contentDiagModeBtn) els.contentDiagModeBtn.disabled = !Boolean(currentItem) || sessionPaused;
     renderContentDiagnostics();
   }
 
@@ -351,6 +367,35 @@
     els.contentAlertDetails.addEventListener('click', () => toggleContentDiagnostics(true));
     els.contentAlertDismiss.addEventListener('click', () => { els.contentAlert.hidden = true; });
     els.contentDiagClose.addEventListener('click', () => toggleContentDiagnostics(false));
+    els.contentDiagModeBtn.addEventListener('click', async () => {
+      if (!currentItem || transitionBusy || packageLoading || sessionPaused) return;
+      diagnosticMode = !diagnosticMode;
+      els.contentDiagModeBtn.setAttribute('aria-pressed', String(diagnosticMode));
+      els.contentDiagModeBtn.textContent = diagnosticMode ? 'Relancer normalement' : 'Diagnostic renforcé';
+      addSystemLog(diagnosticMode ? 'Diagnostic renforcé activé pour le prochain démarrage' : 'Diagnostic renforcé désactivé');
+      await launchItem(currentItem, true);
+      toggleContentDiagnostics(true);
+    });
+    window.addEventListener('message', event => {
+      if (!diagnosticMode || !packageState || !currentItem) return;
+      if (event.origin !== location.origin || event.source !== els.scoFrame.contentWindow) return;
+      const data = event.data;
+      if (!data || data.source !== 'scorm-studio-content-debug' || typeof data.kind !== 'string') return;
+      const note = { kind: data.kind.slice(0, 40), message: String(data.message || '').slice(0, 1500),
+        url: String(data.url || '').slice(0, 700), time: new Date().toLocaleTimeString('fr-FR') };
+      if (!note.url.startsWith(packageState.virtualRoot)) return;
+      if (debugTelemetry.length < maxDebugTelemetry) debugTelemetry.push(note);
+      if (note.kind === 'js-error' || note.kind === 'promise-error' || note.kind === 'resource-error') {
+        reportContentIssue('debug:' + note.kind + ':' + note.message, 'Erreur au démarrage du contenu : ' + note.message,
+          note.kind === 'resource-error' ? 'SIM:ressource' : 'SIM:affichage',note.url);
+      } else if (note.kind === 'visual-check') {
+        lastFrameSnapshot = note.message;
+        if (/visible=0\b/.test(note.message) && /text=[1-9]/.test(note.message)) {
+          reportContentIssue('hidden-content', 'Le contenu semble présent mais invisible (CSS ou script).', 'SIM:affichage', note.message);
+        }
+      }
+      renderContentDiagnostics();
+    });
     els.contentDiagCopy.addEventListener('click', async () => {
       const report = formatContentDiagnostic();
       try {
@@ -395,6 +440,10 @@
     els.contentDiagList.replaceChildren();
     const entries = [];
     if (packageState) {
+      entries.push({text: 'Diagnostic renforcé : ' + (diagnosticMode ? 'activé (capteurs exécutés avant les scripts du SCO)' : 'désactivé'), ok: !diagnosticMode});
+      if (lastFrameSnapshot) entries.push({text:'Inspection visuelle : ' + lastFrameSnapshot, ok: true});
+      entries.push({text: 'État de la fenêtre SCORM : ' + getFrameDiagnostic(), ok: true});
+      for (const trace of debugTelemetry.slice(-12)) entries.push({text:`${trace.time} · ${trace.kind} : ${trace.message}`,ok:!['js-error','promise-error','resource-error'].includes(trace.kind)});
       entries.push({text:`Service Worker : ${swReady ? 'actif' : 'indisponible'}. Lecture des fichiers via Cache API.`, ok:swReady});
       if (lastLaunchCheck.entryFound) entries.push({text:'Fichier HTML de lancement trouvé dans le cache local.',ok:true});
       if (runtime?.initialized) entries.push({text:'API SCORM initialisée. Cela ne valide pas l’affichage du contenu.',ok:true});
@@ -421,9 +470,32 @@
       'API initialisée : ' + Boolean(runtime?.initialized),
       'Service Worker : ' + String(swReady),
       'Fichier de lancement en cache : ' + String(lastLaunchCheck.entryFound),
-      'Références vérifiées : ' + lastLaunchCheck.checked
+      'Références vérifiées : ' + lastLaunchCheck.checked,
+      'État iframe : ' + getFrameDiagnostic(),
+      'Diagnostic renforcé : ' + diagnosticMode,
+      'Inspection visuelle : ' + (lastFrameSnapshot || 'non disponible'),
+      'Événements du capteur : ' + debugTelemetry.length,
+      ...debugTelemetry.map(e => `[${e.time}] ${e.kind} : ${e.message} (${e.url})`)
     ];
-    return header.concat(contentIssues.length ? contentIssues.map(issue => `${issue.method} : ${issue.message} ${issue.detail || ''}`) : ['Aucune anomalie détectée par le lecteur.']).join('\n');
+    return header.concat(contentIssues.length ? contentIssues.map(issue => `${issue.method} : ${issue.message} ${issue.detail || ''}`) : ['Aucune anomalie décelée par les contrôles effectués. Cela ne garantit pas que le contenu s’affiche correctement.']).join('\n');
+  }
+
+  function getFrameDiagnostic() {
+    const frame = els.scoFrame;
+    if (!frame) return 'iframe indisponible';
+    const rect = frame.getBoundingClientRect();
+    const style = getComputedStyle(frame);
+    const dims = `${Math.round(rect.width)}x${Math.round(rect.height)}px`, shown = !frame.hidden &&
+      style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+    try {
+      const doc = frame.contentDocument;
+      if (!doc) return `${dims} visible=${shown}, document inaccessible`;
+      const body = doc.body;
+      return `${dims} visible=${shown}, document=${doc.readyState}, body=${body ? 'présent' : 'absent'}, ` +
+        `éléments=${body?.querySelectorAll('*').length ?? 0}, texte=${body?.innerText?.trim().length ?? 0}`;
+    } catch {
+      return `${dims} visible=${shown}, origine différente (inspection limitée)`;
+    }
   }
 
   function reportContentIssue(key, message, method = 'SIM:affichage', detail = '') {
@@ -584,6 +656,7 @@
     els.reloadBtn.disabled = !ready || sessionPaused;
     els.resetSessionBtn.disabled = !ready;
     els.openWindowBtn.disabled = !ready && !sessionPaused;
+    els.contentDiagModeBtn.disabled = !ready || sessionPaused;
     els.closeSessionBtn.disabled = !ready || sessionPaused;
     els.resumeSessionBtn.disabled = !ready || !sessionPaused;
     els.resumeSessionBtn.hidden = !sessionPaused;
@@ -828,7 +901,9 @@
         // Browser-level navigation errors do not appear in the SCORM API log.
         // Observe the iframe separately without modifying the package HTML.
         els.scoFrame.addEventListener('load', () => inspectLoadedFrame(observation), { once: true });
-        els.scoFrame.src = forceReload ? appendCacheBuster(url) : url;
+        const targetUrl = new URL(forceReload ? appendCacheBuster(url) : url);
+        if (diagnosticMode) targetUrl.searchParams.set('__scorm_debug','1');
+        els.scoFrame.src = targetUrl.href;
         els.currentItemTitle.textContent = item.title;
         updateOutlineActive();
         updateRuntimeLabel();
