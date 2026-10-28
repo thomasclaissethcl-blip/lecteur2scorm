@@ -3,8 +3,8 @@
 
   const CACHE_NAME = 'scorm-reader-packages-v1';
   const APP_BASE = new URL('./', document.baseURI);
-  const SW_RELOAD_KEY = 'scorm-reader-sw-reload-v5';
-  const SW_SCRIPT_URL = new URL('sw-v5.js', APP_BASE).href;
+  const SW_RELOAD_KEY = 'scorm-reader-sw-reload-v6';
+  const SW_SCRIPT_URL = new URL('sw-v6.js', APP_BASE).href;
   const els = {};
   let swReady = false;
   let packageState = null;
@@ -201,7 +201,7 @@
       });
       await registration.update().catch(() => {});
       await navigator.serviceWorker.ready;
-      // A v4 controller can serve the first load while v5 is installing.
+      // An older controller can serve the first load while v6 is installing.
       // Never begin serving a ZIP with a worker whose fetch implementation is unknown.
       if (navigator.serviceWorker.controller?.scriptURL !== SW_SCRIPT_URL) {
         await waitForServiceWorkerControl(4500, () => navigator.serviceWorker.controller?.scriptURL === SW_SCRIPT_URL);
@@ -285,7 +285,8 @@
         manifest,
         hash,
         virtualRoot,
-        fileCount: zip.listFiles().length
+        fileCount: zip.listFiles().length,
+        h5pInlineCompat: Boolean(zip.byName.has('player/main.bundle.js') && zip.byName.has('scorm/h5p-scorm-bridge.js'))
       };
 
       runtime = null;
@@ -446,6 +447,7 @@
       for (const trace of debugTelemetry.slice(-12)) entries.push({text:`${trace.time} · ${trace.kind} : ${trace.message}`,ok:!['js-error','promise-error','resource-error'].includes(trace.kind)});
       entries.push({text:`Service Worker : ${swReady ? 'actif' : 'indisponible'}. Lecture des fichiers via Cache API.`, ok:swReady});
       if (lastLaunchCheck.entryFound) entries.push({text:'Fichier HTML de lancement trouvé dans le cache local.',ok:true});
+      if (packageState?.h5pInlineCompat) entries.push({text:'Compatibilité H5P : affichage direct sans iframe interne pour éviter les requêtes non interceptées.',ok:true});
       if (runtime?.initialized) entries.push({text:'API SCORM initialisée. Cela ne valide pas l’affichage du contenu.',ok:true});
       if (runtime?.data?.['cmi.core.entry'] === 'resume' || runtime?.data?.['cmi.entry'] === 'resume') {
         entries.push({text:'Reprise de session détectée. Pour écarter un état sauvegardé incompatible, testez une remise à zéro complète (destructive).',ok:false});
@@ -474,6 +476,7 @@
       'État iframe : ' + getFrameDiagnostic(),
       'Diagnostic renforcé : ' + diagnosticMode,
       'Inspection visuelle : ' + (lastFrameSnapshot || 'non disponible'),
+      'Adaptation H5P sans iframe interne : ' + String(Boolean(packageState?.h5pInlineCompat)),
       'Événements du capteur : ' + debugTelemetry.length,
       ...debugTelemetry.map(e => `[${e.time}] ${e.kind} : ${e.message} (${e.url})`)
     ];
@@ -592,6 +595,20 @@
         reportContentIssue('promise:' + String(event.reason), 'Erreur asynchrone du contenu.', 'SIM:affichage',String(event.reason));
       });
       // ResourceTiming is useful when supported, but responseStatus is not available in every browser.
+      // Nested about:blank frames can bypass SW in some browsers. This was the
+      // source of hundreds of H5P JS/CSS 404 errors despite a valid ZIP.
+      const nested = document.querySelectorAll('iframe');
+      for (const child of [...nested].slice(0, 20)) {
+        try {
+          if (child.contentWindow?.location.href === 'about:blank' &&
+              child.contentWindow?.navigator?.serviceWorker &&
+              !child.contentWindow.navigator.serviceWorker.controller) {
+            reportContentIssue('uncontrolled-about-blank',
+              'Iframe interne about:blank sans contrôle du Service Worker.',
+              'SIM:ressource', 'Les ressources du package risquent de répondre HTTP 404 dans ce navigateur.');
+          }
+        } catch { /* Embedded cross-origin frames cannot be inspected. */ }
+      }
       const performanceEntries = frame.contentWindow.performance?.getEntriesByType('resource') || [];
       for (const entry of performanceEntries.slice(0, 300)) {
         if (entry.responseStatus >= 400) {

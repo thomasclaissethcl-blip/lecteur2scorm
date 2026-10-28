@@ -1,4 +1,36 @@
-# SCORM Studio v5 : diagnostic renforcé et interface corrigée
+# SCORM Studio v6 : correction du chargement H5P multi-navigateurs
+
+## Cause investiguée à partir du package fourni
+
+L’archive `fantasy-map-2-181-1-scorm12(2).zip` contient effectivement les fichiers
+`player/frame.bundle.js`, `player/styles/h5p.css` et les dépendances H5P. **Les
+121 chemins virtuels relevés en erreur 404 dans le journal correspondent tous
+à des fichiers présents dans le ZIP** (121/121). Le script H5PStandalone utilisé par ce package
+construit une iframe interne `about:blank`, dont les requêtes peuvent échapper
+au Service Worker selon les navigateurs. Le site GitHub Pages ne possédant pas
+physiquement ces fichiers virtuels, le serveur répond 404, empêchant l’affichage H5P.
+
+**Correction ciblée :** `sw-v6.js` restitue à la volée le bridge H5PStandalone
+avec `embedType: "div"`, option déjà prise en charge par cette bibliothèque.
+Les assets H5P sont alors chargés dans le document SCORM principal, contrôlé
+par le Service Worker. Le ZIP original et les fichiers stockés dans le cache
+ne sont pas modifiés. Les packages sans le bridge correspondant restent inchangés.
+Le diagnostic du lecteur indique si le package a cette structure. Cette adaptation reste limitée aux packages utilisant ce bridge H5PStandalone ; les autres mécanismes de rendu ne sont pas modifiés.
+
+**Portée de la validation :** la structure du ZIP et le code H5P ont été
+inspectés, et des tests du Service Worker vérifient la transformation ciblée.
+Les navigateurs automatisés de cet environnement bloquent l’accès aux serveurs
+HTTP locaux ; nous ne pouvons donc pas certifier la disparition de l’écran
+blanc sur l’installation GitHub Pages avant votre test.
+
+**Mise à jour :** publier tous les fichiers à la racine du dépôt GitHub Pages,
+notamment `sw-v6.js`, puis rouvrir le site (rechargement classique) et importer
+le ZIP. Le stockage local des tentatives est conservé. Ne pas publier le ZIP de
+test dans le dépôt.
+
+---
+
+# SCORM Studio v6 : diagnostic renforcé et interface corrigée
 
 Application web **100 % statique**, conçue pour GitHub Pages. Aucun serveur applicatif, PHP, Node.js ou appel API Moodle n'est nécessaire pour utiliser le lecteur. Le SCORM ZIP est extrait **dans le navigateur**, puis servi par un Service Worker sur la même origine. Les tentatives et réglages sont conservés dans les espaces de stockage locaux de ce navigateur.
 
@@ -16,7 +48,7 @@ Application web **100 % statique**, conçue pour GitHub Pages. Aucun serveur app
 ## Corrections et diagnostic Chrome de la v5
 
 - **Bouton « Nouvelle fenêtre »** : la barre du lecteur possède désormais quatre zones de grille explicites (navigation, titre, diagnostic, nouvelle fenêtre). La disposition se replie sur deux lignes dans les espaces réduits. Le bouton ne déborde plus sous l’iframe. La position a été vérifiée dans Chromium sur six largeurs, de 390 à 1440 pixels.
-- **Mise à jour du Service Worker** : la v5 utilise un nouveau fichier `sw-v5.js`. Lorsqu’un navigateur conserve l’ancien worker, l’application attend son remplacement ou recharge une seule fois la page. Le cache des packages et les progressions restent compatibles avec les versions antérieures. Le fichier `sw.js` reste inclus pour les pages mises en cache avec l’ancienne interface.
+- **Mise à jour du Service Worker** : la v6 utilise un nouveau fichier `sw-v6.js`. Lorsqu’un navigateur conserve l’ancien worker, l’application attend son remplacement ou recharge une seule fois la page. Le cache des packages et les progressions restent compatibles avec les versions antérieures. Le fichier `sw.js` reste inclus pour les pages mises en cache avec l’ancienne interface.
 - **Diagnostic renforcé facultatif** : dans le panneau de diagnostic du contenu (icône bouclier), cliquez sur **« Diagnostic renforcé »**. Le SCO redémarre dans la même tentative et le Service Worker ajoute temporairement un petit capteur au HTML servi par le navigateur, avant les scripts du package. Ce capteur relève les erreurs JavaScript précoces, les promesses rejetées, les erreurs de ressources et des indicateurs de visibilité du contenu. Le ZIP original et les fichiers en cache restent inchangés. **« Relancer normalement »** désactive le capteur et redémarre le SCO.
 - **Diagnostic d'affichage** : la copie du rapport inclut la taille de l’iframe, son état de visibilité, le statut de chargement du document, le nombre d’éléments HTML et les mesures remontées par le capteur. L’absence d’erreurs détectées n’équivaut pas à une preuve que le contenu est opérationnel.
 
@@ -28,7 +60,7 @@ Application web **100 % statique**, conçue pour GitHub Pages. Aucun serveur app
 4. Pour distinguer un état SCORM sauvegardé incompatible d’un problème initial, choisissez un **nouvel identifiant d’apprenant de test** dans la colonne de gauche, puis **Appliquer**. Cela démarre avec un suivi distinct, sans effacer celui du premier apprenant.
 5. Comparez le comportement avec Firefox normal. Transmettez les diagnostics des deux navigateurs ou le ZIP de test si vous pouvez le partager.
 
-Le rapport original montre `LMSInitialize = true` et des données CMI relues, mais cela ne garantit pas l’exécution de l’interface H5P. Sans le package « fantasy map 2 181 (1) », il n’est pas possible d’établir la cause exacte de la page blanche. Le diagnostic v5 vise à identifier le premier script ou état défaillant.
+Historique v5 : le rapport montrait `LMSInitialize = true` et des données CMI relues, sans démontrer le rendu H5P. Le package fourni depuis a permis d’identifier les dépendances manquantes dans les requêtes réseau et l’iframe interne H5PStandalone comme cause probable du défaut multi-navigateurs. La v6 applique la correction ci-dessus.
 
 **Attention :** le mode renforcé modifie temporairement la réponse HTML que voit le contenu pour effectuer l’instrumentation. Certains packages très sensibles à l’ordre des scripts peuvent réagir différemment sous instrumentation. Confirmez toujours le diagnostic en mode normal.
 
@@ -44,7 +76,7 @@ Tous les calculs sont recalculés automatiquement pendant l'exécution du packag
 
 ## Installation GitHub Pages
 
-1. Placez **le contenu de ce dossier** à la racine de votre dépôt GitHub, avec `index.html`, `app.js`, `scorm-runtime.js`, `moodle-simulator.js`, `manifest.js`, `zip-reader.js`, `styles.css`, `sw-v5.js`, `sw.js` et `.nojekyll`.
+1. Placez **le contenu de ce dossier** à la racine de votre dépôt GitHub, avec `index.html`, `app.js`, `scorm-runtime.js`, `moodle-simulator.js`, `manifest.js`, `zip-reader.js`, `styles.css`, `sw-v6.js`, `sw.js` et `.nojekyll`.
 2. Dans **Settings > Pages**, sélectionnez **Deploy from a branch** puis la branche de publication et le dossier **/(root)**, ou votre configuration GitHub Pages habituelle.
 3. Ouvrez l'URL HTTPS fournie par GitHub Pages. Le Service Worker a besoin de HTTPS (ou de `localhost` pendant le développement) et doit être autorisé par le navigateur. Il peut être indisponible en navigation privée.
 4. Glissez-déposez un fichier SCORM ZIP. Les fichiers ne sont pas téléversés vers GitHub ou Moodle.
@@ -103,8 +135,8 @@ node --test tests/*.test.js
 
 Les tests supplémentaires `tests/virtual-files.test.js` et `tests/virtual-files-v5.test.js` vérifie les ressources manquantes et les réponses HTTP partielles. Deux scénarios Chromium autonomes valident le cycle de vie et le panneau diagnostic sans serveur HTTP. Un package de test simple peut être créé avec `python tests/create-fixture.py`. Le script `tests/browser_smoke.py` décrit un parcours d'intégration Playwright facultatif. Les tests ne sont pas nécessaires pour le déploiement statique.
 
-### Vérification effectuée pour la v5
+### Vérifications des versions précédentes (historique)
 
-- 28 tests Node.js réussis (moteur SCORM, simulation Moodle, cycle de vie et fichier virtuel).
+- 28 tests Node.js réussis en v5 ; 33 tests réussis en v6 (moteur SCORM, simulation Moodle, cycle de vie et fichier virtuel).
 - Six formats d’écran validés via Chromium avec une page HTML locale mise en mémoire (vérification de la position du bouton « Nouvelle fenêtre »).
 - L’exécution du scénario complet avec un ZIP dans Chromium a été tentée, mais l’environnement de test a refusé l’accès au serveur local (`ERR_BLOCKED_BY_ADMINISTRATOR`). Elle doit être reproduite sur GitHub Pages.
